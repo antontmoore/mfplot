@@ -1,0 +1,6 @@
+dash == 2.7.0
+numpy == 1.24.0
+pandas == 1.5.2
+av2 == 0.2.1
+dash-bootstrap-components == 1.2.1
+dash-bootstrap-templates == 1.0.7
