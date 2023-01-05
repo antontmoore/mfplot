@@ -9,6 +9,8 @@ from av2.datasets.motion_forecasting.data_schema import ObjectType, TrackCategor
 from av2.map.map_api import ArgoverseStaticMap
 from pathlib import Path
 import numpy as np
+from collections import defaultdict
+from copy import deepcopy
 
 import json
 import os
@@ -29,6 +31,8 @@ THEMECOLORS = {
 }
 load_figure_template(['darkly'])
 template = 'darkly'
+
+MASK_VALUE = -100500
 
 
 scale_coefficient = 0.08
@@ -63,9 +67,14 @@ vehicle_glass_x = [-1 * j + 27.6 for j in vehicle_glass_x]
 
 vehicle_glass_x = np.array(vehicle_glass_x) * scale_coefficient
 vehicle_glass_y = np.array(vehicle_glass_y) * scale_coefficient
+vehicle_glass = np.vstack((vehicle_glass_x, vehicle_glass_y))
 
 
+vehicle_contour = np.array([[-1.5, 1.0, 1.5, 1.5, 1.0, -1.5],
+                            [0.8, 0.8, 0.5, -0.5, -0.8, -0.8]])
+vehicle_glass = np.zeros((2, 1))
 
+none_vector = np.array([None, None], ndmin=2)
 
 class FigureCreator:
 
@@ -76,7 +85,6 @@ class FigureCreator:
     def make_static_data(self):
 
         # generate dicts for drivable area traces
-        none_vector = np.array([None, None], ndmin=2)
         drivable_area_coords = none_vector
         for drive_area in self.static_map.vector_drivable_areas.values():
             drivable_area_coords = np.vstack((drivable_area_coords,
@@ -84,14 +92,18 @@ class FigureCreator:
                                               none_vector))
 
         drivable_area_traces = {
-                "x": drivable_area_coords[:, 0],
-                "y": drivable_area_coords[:, 1],
-                "line": dict(width=1, color=THEMECOLORS['dark-grey']),
+                "x": drivable_area_coords[:, 0].tolist(),
+                "y": drivable_area_coords[:, 1].tolist(),
+                "line": {
+                    "width": 1,
+                    "color": THEMECOLORS['dark-grey']
+                },
                 "hoverinfo": 'none',
                 "mode": 'lines',
                 "fill": 'toself',
                 "showlegend": False
             }
+
 
         # generate dicts for lanes traces
         lanes_x, lanes_y = [], []
@@ -109,78 +121,160 @@ class FigureCreator:
             "y": lanes_y,
             "line": {
                 "width": 1,
-                "color": THEMECOLORS['light-grey'],
+                "color": THEMECOLORS['light-grey']
             },
             "hoverinfo": 'none',
             "mode": 'lines',
-            "showlegend": False
+            "showlegend": False,
+            "fill": 'none'
         }
 
+        # # we need to add dummy trace to avoid the loss of static data
+        # # details: https://github.com/plotly/plotly.py/issues/3753
+        # dummy_trace = {
+        #     "x": lanes_x[:2],
+        #     "y": lanes_y[:2],
+        #     "line": {
+        #         "width": 0,
+        #         "color": "#ff0000"
+        #     },
+        #     "hoverinfo": 'none',
+        #     "mode": 'none',
+        #     "showlegend": False,
+        #     "fill": 'none'
+        # }
         return [drivable_area_traces, lanes_traces]
 
     def make_dynamic_data(self, static_data):
-
-        # vehicle_contour = np.array([[-1.5, 1.0, 1.5, 1.5, 1.0, -1.5],
-        #                             [0.8, 0.8, 0.5, -0.5, -0.8, -0.8]])
-
 
         # calculating the max of timestamps
         max_timestamp = max([object_state.timestep for track in self.scenario.tracks for object_state in track.object_states])
         number_of_tracks = len(self.scenario.tracks)
 
-        coords = -np.ones((number_of_tracks, max_timestamp + 1, 2))
+        # forming arrays - preparing data
+        coords = np.ones((number_of_tracks, max_timestamp + 1, 2)) * MASK_VALUE
         headings = np.zeros((number_of_tracks, max_timestamp + 1))
+        track_colors = []
+        track_types = []
         for track_idx, track in enumerate(self.scenario.tracks):
-            # print(track.category)
             for objs in track.object_states:
                 coords[track_idx, objs.timestep, :] = objs.position
                 headings[track_idx, objs.timestep] = objs.heading
 
+            track_color = {
+                TrackCategory.FOCAL_TRACK: THEMECOLORS["green"],
+                TrackCategory.SCORED_TRACK: THEMECOLORS["blue"],
+                TrackCategory.UNSCORED_TRACK: THEMECOLORS["white"],
+                TrackCategory.TRACK_FRAGMENT: THEMECOLORS["light-grey"]
+            }[track.category]
+
+            track_colors.append(track_color)
+            track_types.append(track.object_type)
+
+
+        # frames generation
         frames = []
 
         for ts in range(max_timestamp + 1):
             trajectories_x, trajectories_y = [], []
-            vehicles_x, vehicles_y = [], []
-            vehicle_glasses_x, vehicle_glasses_y = [], []
-            other_x, other_y = [], []
+
+            contours = defaultdict(list)
+            vehicles_data, vehicle_glass_data = [], []
+            others_data = []
             for track_idx, track in enumerate(self.scenario.tracks):
-                track_coords = coords[track_idx, ts, :]
+                track_color, track_type = track_colors[track_idx], track_types[track_idx]
+                # track_color = THEMECOLORS["green"] if track_idx == 0 else THEMECOLORS["blue"]
+                track_current_coords = coords[track_idx, ts, :]
 
-                track_coords_masked = np.ma.masked_less(track_coords, 0)
-                if 0 in track_coords_masked.shape:
-                    # no points to plot in this track
-                    continue
+                track_current_coords_masked = np.ma.masked_less(track_current_coords, MASK_VALUE + 1)
 
-                trace = track_coords_masked.compressed().reshape((-1, 2))
+                # no points to plot in this track
+                empty_track = abs(track_current_coords[0] - MASK_VALUE) < 1
 
-                trajectories_x.extend(trace[:, 0])
-                trajectories_y.extend(trace[:, 1])
-                trajectories_x.append(None)
-                trajectories_y.append(None)
+                trace = track_current_coords_masked.compressed().reshape((-1, 2))
 
-                if trace.shape[0] > 0:
-                    heading = headings[track_idx, ts]
-                    rot_m = np.array([[np.cos(heading), np.sin(heading)],
-                                      [-np.sin(heading), np.cos(heading)]])
-                    if track.object_type == ObjectType.VEHICLE and \
-                        track.category in [TrackCategory.FOCAL_TRACK, TrackCategory.SCORED_TRACK]:
-                        rotated_vehicle = rot_m @ vehicle_contour
-                        #
-                        vehicles_x.extend(np.add(rotated_vehicle[0, :], trace[-1, 0]))
-                        vehicles_y.extend(np.add(rotated_vehicle[1, :], trace[-1, 1]))
-                        vehicles_x.append(None)
-                        vehicles_y.append(None)
+                # trajectories_x.extend(trace[:, 0])
+                # trajectories_y.extend(trace[:, 1])
+                # trajectories_x.append(None)
+                # trajectories_y.append(None)
 
-                        rotated_glasses = rot_m @ np.vstack((vehicle_glass_x, vehicle_glass_y))
-                        vehicle_glasses_x.extend(np.add(rotated_glasses[0, :], trace[-1, 0]))
-                        vehicle_glasses_y.extend(np.add(rotated_glasses[1, :], trace[-1, 1]))
-                        vehicle_glasses_x.append(None)
-                        vehicle_glasses_y.append(None)
+                # rotation matrix
+                heading = headings[track_idx, ts]
+                rot_m = np.array([[np.cos(heading), -np.sin(heading)],
+                                  [np.sin(heading), np.cos(heading)]])
+
+                if track_type == ObjectType.VEHICLE:
+                    if empty_track:
+                        xdata, ydata = [], []
                     else:
-                        other_x.append(trace[-1, 0])
-                        other_y.append(trace[-1, 1])
+                        rotated_vehicle = np.add(rot_m @ vehicle_contour, trace[-1, :, np.newaxis])
 
-                a = 1
+                        xdata = rotated_vehicle[0, :].tolist()
+                        ydata = rotated_vehicle[1, :].tolist()
+                    vehicles_data.append(
+                        {
+                            "x": xdata,
+                            "y": ydata,
+                            "line": {
+                                "width": 1,
+                                "color": track_color
+                            },
+                            "hoverinfo": 'none',
+                            "mode": 'lines',
+                            "showlegend": False,
+                            "fill": 'toself',
+                            "name": "tracktupac "+str(track_idx),
+                        }
+
+                    )
+                    # rotated_glass = np.add(rot_m @ vehicle_glass, trace[-1, :, np.newaxis])
+                    # contours.append(rotated_vehicle)
+                    # vehicle_glasses.append(rotated_glass)
+
+                    # contours[track_color].append(
+                    #     np.hstack((
+                    #         rotated_vehicle,
+                    #         none_vector.T
+                    #     ))
+                    # )
+
+
+                    # vehicle_glass_data.append(
+                    #     {"x": rotated_glass[0],
+                    #      "y": rotated_glass[1],
+                    #      "line":
+                    #          {"width": 1,
+                    #           "color": THEMECOLORS["black"],
+                    #           },
+                    #      "hoverinfo": 'none',
+                    #      "mode": 'none',
+                    #      "showlegend": False,
+                    #      "fill": 'toself',
+                    #      "fillcolor": THEMECOLORS["black"],
+                    #      }
+                    # )
+                else:
+                    # others_data.append(
+                    #     {"x": [trace[-1, 0]],
+                    #      "y": [trace[-1, 1]],
+                    #      "hoverinfo": 'none',
+                    #      "mode": 'markers',
+                    #      "marker": {
+                    #          "size": 12,
+                    #          "line": {
+                    #              "width": 2,
+                    #              "color": THEMECOLORS["magenta"]
+                    #          }
+                    #      },
+                    #      "fill": 'none',
+                    #      "showlegend": False,
+                    #      }
+                    # )
+                    # others.append(trace[-1, :])
+                    # color = THEMECOLORS["magenta"]
+
+
+                    a = 1
 
             trajectories_data = \
                 {"x": trajectories_x,
@@ -195,56 +289,55 @@ class FigureCreator:
                  "fill": 'none'
                  }
 
-            vehicles_data = \
-                {"x": vehicles_x,
-                 "y": vehicles_y,
-                 "line":
-                     {"width": 1,
-                      "color": THEMECOLORS["blue"],
-                      },
-                 "hoverinfo": 'none',
-                 "mode": 'lines',
-                 "showlegend": False,
-                 "fill": 'toself'
-                 }
-
-            vehicle_glass_data = \
-                {"x": vehicle_glasses_x,
-                 "y": vehicle_glasses_y,
-                 "line":
-                     {"width": 1,
-                      "color": THEMECOLORS["black"],
-                      },
-                 "hoverinfo": 'none',
-                 "mode": 'none',
-                 "showlegend": False,
-                 "fill": 'toself',
-                 "fillcolor": THEMECOLORS["black"],
-                 }
-
-            other_data = \
-                {"x": other_x,
-                 "y": other_y,
-                 "hoverinfo": 'none',
-                 "mode": 'markers',
-                 "marker": {
-                     "size": 12,
-                     "line": {
-                         "width": 2,
-                         "color": THEMECOLORS["magenta"]
-                     }
-                 },
-                 "fill": 'none',
-                 "showlegend": False,
-                 }
-
-            frame = {"data": [vehicles_data, vehicle_glass_data, other_data],
+            # for color in [THEMECOLORS["green"], THEMECOLORS["blue"]]:
+            #     if len(contours[color]) == 0:
+            #         print("Empty")
+            #     contour_data = np.hstack(contours[color])
+            #
+            # # for color, contour_list in contours.items():
+            # #     contour_data = np.hstack(contour_list)
+            #     vehicles_data.append(
+            #         {"x": contour_data[0, :],
+            #          "y": contour_data[1, :],
+            #          "line": {
+            #              "width": 1,
+            #              "color": color
+            #          },
+            #          "hoverinfo": 'none',
+            #          "mode": 'lines',
+            #          "showlegend": False,
+            #          "fill": 'toself'
+            #          }
+            #     )
+            frame = {"data": [*static_data, *vehicles_data],
                      "name": str(ts)}
+
+            if ts == 0:
+                frame0 = deepcopy(frame)
             frames.append(frame)
+            # if len(others) > 0:
+            #     other_data = \
+            #         {"x": others[0][0],
+            #          "y": others[0][1],
+            #          "hoverinfo": 'none',
+            #          "mode": 'markers',
+            #          "marker": {
+            #              "size": 12,
+            #              "line": {
+            #                  "width": 2,
+            #                  "color": THEMECOLORS["magenta"]
+            #              }
+            #          },
+            #          "fill": 'none',
+            #          "showlegend": False,
+            #          }
+            #     # frame["data"].append(other_data)
+
+
             a = 1
 
 
-        return frames
+        return frames, frame0["data"]
 
     def generate_figure(self, scene_id):
 
@@ -270,7 +363,7 @@ class FigureCreator:
         static_plot_data = self.make_static_data()
         # drive_area_traces.append(lanes_traces)
 
-        fig_dict["data"] = static_plot_data
+
 
 
 
@@ -295,7 +388,9 @@ class FigureCreator:
             "y": 0,
             "steps": []
         }
-        frames = self.make_dynamic_data(static_plot_data)
+        frames, frame0_data = self.make_dynamic_data(static_data=static_plot_data)
+
+        fig_dict["data"] = frame0_data
         fig_dict["frames"] = frames
         for frame_num in range(len(frames)):
             slider_step = {"args": [
