@@ -76,18 +76,22 @@ class FigureCreator:
     def make_static_data(self):
 
         # generate dicts for drivable area traces
-        drivable_area_traces = []
+        none_vector = np.array([None, None], ndmin=2)
+        drivable_area_coords = none_vector
         for drive_area in self.static_map.vector_drivable_areas.values():
-            drivable_area_trace = {
-                "x": drive_area.xyz[:, 0],
-                "y": drive_area.xyz[:, 1],
+            drivable_area_coords = np.vstack((drivable_area_coords,
+                                              drive_area.xyz[:, :2],
+                                              none_vector))
+
+        drivable_area_traces = {
+                "x": drivable_area_coords[:, 0],
+                "y": drivable_area_coords[:, 1],
                 "line": dict(width=1, color=THEMECOLORS['dark-grey']),
                 "hoverinfo": 'none',
                 "mode": 'lines',
                 "fill": 'toself',
                 "showlegend": False
             }
-            drivable_area_traces.append(drivable_area_trace)
 
         # generate dicts for lanes traces
         lanes_x, lanes_y = [], []
@@ -112,7 +116,7 @@ class FigureCreator:
             "showlegend": False
         }
 
-        return drivable_area_traces + [lanes_traces]
+        return [drivable_area_traces, lanes_traces]
 
     def make_dynamic_data(self, static_data):
 
