@@ -17,9 +17,9 @@ import os
 
 THEMECOLORS = {
     'background': '#0e0e30',
-    'dark-grey': '#353536',
-    'medium-grey': '#4c4c4c',
-    'light-grey': '#505050',
+    'dark-grey': '#353535',
+    'medium-grey': '#454545',
+    'light-grey': '#555555',
     'blue': '#0079cc',
     'dark-blue': '#0065bb',
     'light-blue': '#569cd6',
@@ -70,8 +70,8 @@ vehicle_glass_y = np.array(vehicle_glass_y) * scale_coefficient
 vehicle_glass = np.vstack((vehicle_glass_x, vehicle_glass_y))
 
 
-vehicle_contour = np.array([[-1.5, 1.0, 1.5, 1.5, 1.0, -1.5],
-                            [0.8, 0.8, 0.5, -0.5, -0.8, -0.8]])
+vehicle_contour = np.array([[-1.5, 1.0, 1.5, 1.5, 1.0, -1.5, -1.5],
+                            [0.8, 0.8, 0.5, -0.5, -0.8, -0.8, 0.8]])
 vehicle_glass = np.zeros((2, 1))
 
 none_vector = np.array([None, None], ndmin=2)
@@ -120,7 +120,7 @@ class FigureCreator:
             "x": lanes_x,
             "y": lanes_y,
             "line": {
-                "width": 1,
+                "width": 0.5,
                 "color": THEMECOLORS['light-grey']
             },
             "hoverinfo": 'none',
@@ -129,21 +129,29 @@ class FigureCreator:
             "fill": 'none'
         }
 
-        # # we need to add dummy trace to avoid the loss of static data
-        # # details: https://github.com/plotly/plotly.py/issues/3753
-        # dummy_trace = {
-        #     "x": lanes_x[:2],
-        #     "y": lanes_y[:2],
-        #     "line": {
-        #         "width": 0,
-        #         "color": "#ff0000"
-        #     },
-        #     "hoverinfo": 'none',
-        #     "mode": 'none',
-        #     "showlegend": False,
-        #     "fill": 'none'
-        # }
-        return [drivable_area_traces, lanes_traces]
+        ped_cross_traces = []
+        for ped_xing in self.static_map.vector_pedestrian_crossings.values():
+            ped_cross = np.vstack((
+                ped_xing.edge1.xyz[:, :2],
+                ped_xing.edge2.xyz[::-1, :2],
+                ped_xing.edge1.xyz[0, :2],
+            ))
+            ped_cross_traces.append(
+                {
+                    "x": ped_cross[:, 0].tolist(),
+                    "y": ped_cross[:, 1].tolist(),
+                    "line": {
+                        "width": 0,
+                        "color": THEMECOLORS['medium-grey']
+                    },
+                    "hoverinfo": 'none',
+                    "mode": 'lines',
+                    "showlegend": False,
+                    "fill": 'toself'
+                }
+            )
+
+        return [drivable_area_traces, lanes_traces, *ped_cross_traces]
 
     def make_dynamic_data(self, static_data):
 
