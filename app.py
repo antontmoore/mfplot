@@ -103,6 +103,10 @@ color_by_category = {
                 TrackCategory.TRACK_FRAGMENT: THEMECOLORS["light-grey"]
             }
 
+visualize_trajectory_for_tracks = [TrackCategory.FOCAL_TRACK,
+                                   TrackCategory.SCORED_TRACK,
+                                   TrackCategory.UNSCORED_TRACK]
+
 vehicle_glass = np.zeros((2, 1))
 
 none_vector = np.array([None, None], ndmin=2)
@@ -216,17 +220,18 @@ class FigureCreator:
         frames = []
 
         for ts in range(max_timestamp + 1):
-            trajectories_x, trajectories_y = [], []
 
             vehicles_data = []
             others_data = []
+            trajectories = []
             for track_idx, track in enumerate(self.scenario.tracks):
                 track_color, track_type = track_colors[track_idx], track_types[track_idx]
 
                 # current coordinate and trace calculation
                 track_current_coords = coords[track_idx, ts, :]
-                track_current_coords_masked = np.ma.masked_less(track_current_coords, MASK_VALUE + 1)
-                trace = track_current_coords_masked.compressed().reshape((-1, 2))
+                track_zero_to_current = coords[track_idx, :ts+1, :]
+                track_zero_to_current_masked = np.ma.masked_less(track_zero_to_current, MASK_VALUE + 1)
+                trace = track_zero_to_current_masked.compressed().reshape((-1, 2))
 
                 # flag - no points to plot in this track
                 empty_track = abs(track_current_coords[0] - MASK_VALUE) < 1
@@ -265,8 +270,25 @@ class FigureCreator:
                             "fill": 'toself',
                             "name": "vehicle " + str(track_idx),
                         }
-
                     )
+
+                    if self.show_trajectory and \
+                            track.category in visualize_trajectory_for_tracks:
+
+                        vehicle_trajectory = {
+                            "x": trace[:, 0],
+                            "y": trace[:, 1],
+                            "line":
+                                {"width": 1,
+                                 "color": track_color,
+                                 },
+                            "hoverinfo": 'none',
+                            "mode": 'lines',
+                            "showlegend": False,
+                            "fill": 'none'
+                         }
+                        trajectories.append(vehicle_trajectory)
+
                 else:
                     xdata = [] if empty_track else np.add(track_current_coords[0], object_contour[0, :]).tolist()
                     ydata = [] if empty_track else np.add(track_current_coords[1], object_contour[1, :]).tolist()
@@ -286,26 +308,7 @@ class FigureCreator:
                          }
                     )
 
-                    # trajectories_x.extend(trace[:, 0])
-                    # trajectories_y.extend(trace[:, 1])
-                    # trajectories_x.append(None)
-                    # trajectories_y.append(None)
-
-
-            trajectories_data = \
-                {"x": trajectories_x,
-                 "y": trajectories_y,
-                 "line":
-                     {"width": 1,
-                      "color": THEMECOLORS["blue"],
-                      },
-                 "hoverinfo": 'none',
-                 "mode": 'lines',
-                 "showlegend": False,
-                 "fill": 'none'
-                 }
-
-            frame = {"data": [*static_data, *vehicles_data, *others_data],
+            frame = {"data": [*static_data, *vehicles_data, *others_data, *trajectories],
                      "name": str(ts)}
 
             frames.append(frame)
