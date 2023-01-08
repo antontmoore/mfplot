@@ -69,13 +69,26 @@ visualize_trajectory_for_tracks = [TrackCategory.FOCAL_TRACK,
 
 none_vector = np.array([None, None], ndmin=2)
 
-class FigureCreator:
+class ArgoverseFigureCreator:
 
     def __init__(self, show_trajectory=False, show_legend=False):
         self.scenario = None
         self.static_map = None
         self.show_trajectory = show_trajectory
         self.show_legend = show_legend
+
+        self.data_dir_path = 'data/val/'
+        subdirs = [path for path in Path(self.data_dir_path).iterdir() if path.is_dir()]
+        self.number_of_scenes = len(subdirs)
+        self.dirname_by_id = dict(zip(
+            range(1, self.number_of_scenes+1),
+            [subdir.name for subdir in subdirs]
+        ))
+
+        self.current_scene_id = 1
+        self.current_scene = self.generate_figure(
+            self.dirname_by_id[self.current_scene_id]
+        )
 
     def make_static_data(self):
 
@@ -275,7 +288,7 @@ class FigureCreator:
 
     def generate_figure(self, scene_id):
 
-        scene_path = 'data/val/' + scene_id
+        scene_path = self.data_dir_path + scene_id
         static_map_path = scene_path + f"/log_map_archive_{scene_id}.json"
         scenario_path = scene_path + f"/scenario_{scene_id}.parquet"
 
@@ -362,6 +375,46 @@ class FigureCreator:
         fig = go.Figure(fig_dict)
 
         return fig
+
+    def get_current_scene(self):
+        return self.current_scene
+
+    def get_next_scene(self):
+
+        if self.current_scene_id == self.number_of_scenes:
+            print(f"Try to get the scene {self.current_figure_id+1}, but we have only {self.number_of_scenes} scenes.")
+        else:
+            self.current_scene_id += 1
+            self.current_scene = self.generate_figure(
+                self.dirname_by_id[self.current_scene_id]
+            )
+
+        return self.current_scene, self.current_scene_id
+
+    def get_previous_scene(self):
+
+        if self.current_scene_id == 1:
+            print(f"Try to get the scene 0, but we start from 1.")
+        else:
+            self.current_scene_id -= 1
+            self.current_scene = self.generate_figure(
+                self.dirname_by_id[self.current_scene_id]
+            )
+
+        return self.current_scene, self.current_scene_id
+
+    def get_scene_by_id(self, scene_id):
+        if scene_id <= 0:
+            print(f"Try to get the scene 0, but we start from 1.")
+        elif scene_id > self.number_of_scenes:
+            print(f"Try to get the scene {scene_id}, but we have only {self.number_of_scenes} scenes.")
+        else:
+            self.current_scene_id = scene_id
+            self.current_scene = self.generate_figure(
+                self.dirname_by_id[scene_id]
+            )
+        return self.current_scene, self.current_scene_id
+
 
 ### NOT USED ###
 # scale_coefficient = 0.08

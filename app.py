@@ -1,11 +1,12 @@
 from dash import Dash, html, dcc, Input, Output, ctx
-from figure_creation.argoverse import FigureCreator
+from figure_creation.argoverse import ArgoverseFigureCreator
 import dash_bootstrap_components as dbc
 import os
 from PIL import Image
 
-fc = FigureCreator()
-fig = fc.generate_figure(scene_id='0a0ef009-9d44-4399-99e6-50004d345f34')
+fc = ArgoverseFigureCreator()
+# fig = fc.generate_figure(scene_id='0a0ef009-9d44-4399-99e6-50004d345f34')
+fig = fc.get_current_scene()
 
 dbc_css = "https://cdn.jsdelivr.net/gh/AnnMarieW/dash-bootstrap-templates/dbc.min.css"
 app = Dash(__name__, external_stylesheets=[dbc_css, dbc.themes.DARKLY])
@@ -15,7 +16,7 @@ header = html.H4(
 )
 
 graph = dcc.Graph(
-        id='example-graph',
+        id='scene_graph',
         style={'width': '90vh', 'height': '90vh'},
         figure=fig,
     )
@@ -97,20 +98,23 @@ app.layout = dbc.Container(
 
 
 @app.callback(
+    Output(component_id='scene_graph', component_property='figure'),
     Output(component_id='scene_id', component_property='value'),
     Input(component_id='scene_id', component_property='value'),
     Input(component_id='next_scene_button', component_property='n_clicks'),
     Input(component_id='previous_scene_button', component_property='n_clicks')
 )
-def update_scene_id_by_clicking_buttons(current_id, next_clicks, prev_clicks):
+def change_scene_id_by_clicking_buttons(scene_id_from_input, next_clicks, prev_clicks):
     trigger_id = ctx.triggered_id
 
     print(trigger_id)
     if trigger_id == 'next_scene_button':
-        return str(int(current_id) + 1)
+        new_scene, new_scene_id = fc.get_next_scene()
     elif trigger_id == 'previous_scene_button':
-        return str(int(current_id) - 1)
-    return current_id
+        new_scene, new_scene_id = fc.get_previous_scene()
+    else:
+        new_scene, new_scene_id = fc.get_scene_by_id(int(scene_id_from_input))
+    return new_scene, str(new_scene_id)
 
 
 if __name__ == '__main__':
