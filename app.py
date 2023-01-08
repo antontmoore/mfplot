@@ -43,6 +43,7 @@ dropdown = dcc.Dropdown(
                 ], style={'align-items': 'center', 'justify-content': 'center'}
             ),
             "value": "Waymo",
+            "disabled": True,
         },
         {
             "label": html.Span(
@@ -52,6 +53,7 @@ dropdown = dcc.Dropdown(
                 ], style={'align-items': 'center', 'justify-content': 'center'}
             ),
             "value": "Yandex",
+            "disabled": True,
         },
         {
             "label": html.Span(
@@ -61,9 +63,11 @@ dropdown = dcc.Dropdown(
                 ], style={'align-items': 'center', 'justify-content': 'center'}
             ),
             "value": "Lyft",
+            "disabled": True,
         },
     ],
     value="Argoverse",
+    clearable=False
 )
 
 app.layout = dbc.Container(
