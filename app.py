@@ -1,4 +1,4 @@
-from dash import Dash, html, dcc
+from dash import Dash, html, dcc, Input, Output, ctx
 from figure_creation.argoverse import FigureCreator
 import dash_bootstrap_components as dbc
 import os
@@ -70,13 +70,21 @@ dropdown = dcc.Dropdown(
     clearable=False
 )
 
+button_group = dbc.ButtonGroup(
+    [
+        dbc.Button("Previous", color="primary", outline=True, id="previous_scene_button"),
+        dbc.Input(value="1", type="text", id="scene_id", style={'textAlign': 'center'}),
+        dbc.Button("Next", color="primary", id="next_scene_button"),
+    ]
+)
+
 app.layout = dbc.Container(
     [
         header,
         dbc.Row(
             [
                 dbc.Col(
-                    [dropdown],
+                    [dropdown, html.Br(), button_group],
                     width=2
                 ),
                 dbc.Col([graph], width=8),
@@ -86,6 +94,24 @@ app.layout = dbc.Container(
     fluid=True,
     className="dbc",
 )
+
+
+@app.callback(
+    Output(component_id='scene_id', component_property='value'),
+    Input(component_id='scene_id', component_property='value'),
+    Input(component_id='next_scene_button', component_property='n_clicks'),
+    Input(component_id='previous_scene_button', component_property='n_clicks')
+)
+def update_scene_id_by_clicking_buttons(current_id, next_clicks, prev_clicks):
+    trigger_id = ctx.triggered_id
+
+    print(trigger_id)
+    if trigger_id == 'next_scene_button':
+        return str(int(current_id) + 1)
+    elif trigger_id == 'previous_scene_button':
+        return str(int(current_id) - 1)
+    return current_id
+
 
 if __name__ == '__main__':
     app.run_server(debug=True)
