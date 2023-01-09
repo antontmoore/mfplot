@@ -1,4 +1,4 @@
-from dash import Dash, html, dcc, Input, Output, ctx
+from dash import Dash, html, dcc, Input, Output, ctx, State
 from figure_creation.argoverse import ArgoverseFigureCreator
 import dash_bootstrap_components as dbc
 import os
@@ -79,13 +79,51 @@ button_group = dbc.ButtonGroup(
     ]
 )
 
+advanced_settings = html.Div(
+    [
+        dbc.Button(
+            "Advanced settings",
+            id="settings-collapse-button",
+            className="mb-3",
+            color="secondary",
+            outline=True,
+            n_clicks=0,
+        ),
+        dbc.Collapse(
+            dbc.Card(dbc.CardBody(
+                html.Span([
+                    dbc.Switch(
+                        id="show-trajectory-switch",
+                        label="show trajectory",
+                        value=False,
+                    ),
+                    dbc.Label("Scale:"),
+                    dbc.RadioItems(
+                        options=[
+                            {"label": "only significant", "value": 1, "disabled": True},
+                            {"label": "focused", "value": 2, "disabled": True},
+                            {"label": "as is", "value": 3},
+                        ],
+                        value=3,
+                        id="radioitems-input",
+                    )
+                ])
+
+            )),
+            id="settings-panel",
+            is_open=False,
+        ),
+    ]
+)
+
+
 app.layout = dbc.Container(
     [
         header,
         dbc.Row(
             [
                 dbc.Col(
-                    [dropdown, html.Br(), button_group],
+                    [dropdown, html.Br(), button_group, html.Br(), html.Br(), advanced_settings],
                     width=2
                 ),
                 dbc.Col([graph], width=8),
@@ -98,22 +136,37 @@ app.layout = dbc.Container(
 
 
 @app.callback(
+    Output("settings-panel", "is_open"),
+    [Input("settings-collapse-button", "n_clicks")],
+    [State("settings-panel", "is_open")],
+)
+def toggle_settings_collapse(n, is_open):
+    if n:
+        return not is_open
+    return is_open
+
+
+@app.callback(
     Output(component_id='scene_graph', component_property='figure'),
     Output(component_id='scene_id', component_property='value'),
     Input(component_id='scene_id', component_property='value'),
     Input(component_id='next_scene_button', component_property='n_clicks'),
-    Input(component_id='previous_scene_button', component_property='n_clicks')
+    Input(component_id='previous_scene_button', component_property='n_clicks'),
+    Input(component_id='show-trajectory-switch', component_property='value')
 )
-def change_scene_id_by_clicking_buttons(scene_id_from_input, next_clicks, prev_clicks):
+def change_scene_id_by_clicking_buttons(scene_id_from_input, next_clicked, prev_clicked, switch_value):
     trigger_id = ctx.triggered_id
 
     print(trigger_id)
+    new_scene, new_scene_id = fc.current_scene, fc.current_scene_id
     if trigger_id == 'next_scene_button':
         new_scene, new_scene_id = fc.get_next_scene()
     elif trigger_id == 'previous_scene_button':
         new_scene, new_scene_id = fc.get_previous_scene()
-    else:
+    elif trigger_id == 'scene_id':
         new_scene, new_scene_id = fc.get_scene_by_id(int(scene_id_from_input))
+    elif trigger_id == 'show-trajectory-switch':
+        new_scene, new_scene_id = fc.change_visibility_of_trajectories(switch_value)
     return new_scene, str(new_scene_id)
 
 

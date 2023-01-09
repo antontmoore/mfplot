@@ -69,16 +69,19 @@ visualize_trajectory_for_tracks = [TrackCategory.FOCAL_TRACK,
 
 none_vector = np.array([None, None], ndmin=2)
 
+
 class ArgoverseFigureCreator:
 
     def __init__(self, show_trajectory=False, show_legend=False):
         self.scenario = None
         self.static_map = None
         self.show_trajectory = show_trajectory
+        self.trajectories_trace_indices = [0, 0]
         self.show_legend = show_legend
 
         self.data_dir_path = 'data/val/'
         subdirs = [path for path in Path(self.data_dir_path).iterdir() if path.is_dir()]
+
         self.number_of_scenes = len(subdirs)
         self.dirname_by_id = dict(zip(
             range(1, self.number_of_scenes+1),
@@ -111,7 +114,6 @@ class ArgoverseFigureCreator:
                 "fill": 'toself',
                 "showlegend": False
             }
-
 
         # generate dicts for lanes traces
         lanes_x, lanes_y = [], []
@@ -180,8 +182,8 @@ class ArgoverseFigureCreator:
                 headings[track_idx, objs.timestep] = objs.heading
 
             track_colors.append(
-                color_by_category[track.category] \
-                    if track.object_type is not ObjectType.PEDESTRIAN \
+                color_by_category[track.category]
+                    if track.object_type is not ObjectType.PEDESTRIAN
                     else THEMECOLORS["magenta"]
             )
             track_types.append(track.object_type)
@@ -217,8 +219,6 @@ class ArgoverseFigureCreator:
                                       [np.sin(heading), np.cos(heading)]])
                     object_contour = rot_m @ object_contour
 
-
-
                 if track_type == ObjectType.VEHICLE:
                     if empty_track:
                         xdata, ydata = [], []
@@ -243,8 +243,7 @@ class ArgoverseFigureCreator:
                         }
                     )
 
-                    if self.show_trajectory and \
-                            track.category in visualize_trajectory_for_tracks:
+                    if track.category in visualize_trajectory_for_tracks:
 
                         vehicle_trajectory = {
                             "x": trace[:, 0],
@@ -256,7 +255,8 @@ class ArgoverseFigureCreator:
                             "hoverinfo": 'none',
                             "mode": 'lines',
                             "showlegend": False,
-                            "fill": 'none'
+                            "fill": 'none',
+                            "visible": self.show_trajectory
                          }
                         trajectories.append(vehicle_trajectory)
 
@@ -282,6 +282,8 @@ class ArgoverseFigureCreator:
             frame = {"data": [*static_data, *vehicles_data, *others_data, *trajectories],
                      "name": str(ts)}
 
+            first_traj_idx = len(static_data) + len(vehicles_data) + len(others_data)
+            self.trajectories_trace_indices = [first_traj_idx, first_traj_idx+len(trajectories)]
             frames.append(frame)
 
         return frames
@@ -413,6 +415,21 @@ class ArgoverseFigureCreator:
             self.current_scene = self.generate_figure(
                 self.dirname_by_id[scene_id]
             )
+        return self.current_scene, self.current_scene_id
+
+    def change_visibility_of_trajectories(self, new_visibility_value):
+        print("changing visibility of trajectories")
+        print(f"Before: {self.show_trajectory}")
+        fig = self.current_scene
+        if not (new_visibility_value == self.show_trajectory):
+            for trace_idx in range(self.trajectories_trace_indices[0], self.trajectories_trace_indices[1]):
+                fig.data[trace_idx]["visible"] = not self.show_trajectory
+
+                for frame in fig.frames:
+                    frame.data[trace_idx]["visible"] = not self.show_trajectory
+
+            self.show_trajectory = not self.show_trajectory
+        print(f"After: {self.show_trajectory}")
         return self.current_scene, self.current_scene_id
 
 
