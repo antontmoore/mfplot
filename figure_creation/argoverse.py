@@ -69,6 +69,15 @@ visualize_trajectory_for_tracks = [TrackCategory.FOCAL_TRACK,
 
 none_vector = np.array([None, None], ndmin=2)
 
+track_category_text_by_category = \
+    {
+        tc: ' '.join(str(tc).split('.')[1].lower().split('_'))
+        for tc in [TrackCategory.TRACK_FRAGMENT,
+                   TrackCategory.UNSCORED_TRACK,
+                   TrackCategory.SCORED_TRACK,
+                   TrackCategory.FOCAL_TRACK]
+    }
+
 
 class ArgoverseFigureCreator:
 
@@ -188,7 +197,6 @@ class ArgoverseFigureCreator:
             )
             track_types.append(track.object_type)
 
-
         # frames generation
         frames = []
 
@@ -235,11 +243,11 @@ class ArgoverseFigureCreator:
                                 "width": 1,
                                 "color": track_color
                             },
-                            "hoverinfo": 'none',
+                            "hoverinfo": 'text',
                             "mode": 'lines',
                             "showlegend": self.show_legend,
                             "fill": 'toself',
-                            "name": "vehicle " + str(track_idx),
+                            "text": 'vehicle (' + track_category_text_by_category[track.category] + ")",
                         }
                     )
 
@@ -266,13 +274,14 @@ class ArgoverseFigureCreator:
                     others_data.append(
                         {"x": xdata,
                          "y": ydata,
-                         "hoverinfo": 'none',
+                         "hoverinfo": 'text',
                          "mode": 'lines',
                          "line": {
                              "width": 0.5,
                              "color": track_color
                          },
-                         "text": [str(track_type)[11:]],
+                         "text": str(track_type)[11:].lower() + ' (' \
+                                 + track_category_text_by_category[track.category] + ")",
                          "fill": 'toself',
                          "showlegend": self.show_legend,
                          "name": str(track_type).lower()[11:] + " " + str(track_idx),
@@ -347,9 +356,12 @@ class ArgoverseFigureCreator:
             {
                 "buttons": [
                     {
-                        "args": [None, {"frame": {"duration": 0, "redraw": True},
-                                        "fromcurrent": True, "transition": {"duration": 0,
-                                                                            "easing": "quadratic-in-out"}}],
+                        "args": [None, {"frame": {"duration": 0,
+                                                  "redraw": False},
+                                        "fromcurrent": True,
+                                        "transition": {"duration": 0,
+                                                       "easing": "quadratic-in-out"}
+                                        }],
                         "label": "Play",
                         "method": "animate",
                     },
