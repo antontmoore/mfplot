@@ -100,12 +100,11 @@ advanced_settings = html.Div(
                     dbc.Label("Scale:"),
                     dbc.RadioItems(
                         options=[
-                            {"label": "only significant", "value": 1, "disabled": True},
-                            {"label": "focused", "value": 2, "disabled": True},
-                            {"label": "as is", "value": 3},
+                            {"label": "as is", "value": 1},
+                            {"label": "only significant", "value": 2},
                         ],
-                        value=3,
-                        id="radioitems-input",
+                        value=2,
+                        id="scale-radioitem",
                     )
                 ])
 
@@ -152,9 +151,10 @@ def toggle_settings_collapse(n, is_open):
     Input(component_id='scene_id', component_property='value'),
     Input(component_id='next_scene_button', component_property='n_clicks'),
     Input(component_id='previous_scene_button', component_property='n_clicks'),
-    Input(component_id='show-trajectory-switch', component_property='value')
+    Input(component_id='show-trajectory-switch', component_property='value'),
+    Input(component_id='scale-radioitem', component_property='value')
 )
-def change_scene_id_by_clicking_buttons(scene_id_from_input, next_clicked, prev_clicked, switch_value):
+def change_scene_id_by_clicking_buttons(scene_id_from_input, next_clicked, prev_clicked, switch_value, scale_variant):
     trigger_id = ctx.triggered_id
 
     print(trigger_id)
@@ -167,6 +167,8 @@ def change_scene_id_by_clicking_buttons(scene_id_from_input, next_clicked, prev_
         new_scene, new_scene_id = fc.get_scene_by_id(int(scene_id_from_input))
     elif trigger_id == 'show-trajectory-switch':
         new_scene, new_scene_id = fc.change_visibility_of_trajectories(switch_value)
+    elif trigger_id == 'scale-radioitem':
+        new_scene, new_scene_id = fc.change_scene_scale(scale_variant)
     return new_scene, str(new_scene_id)
 
 

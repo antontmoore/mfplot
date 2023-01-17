@@ -78,6 +78,7 @@ track_category_text_by_category = \
                    TrackCategory.FOCAL_TRACK]
     }
 
+SIGNIFICANT_SCALE_DELTA = 20.
 
 class ArgoverseFigureCreator:
 
@@ -87,6 +88,7 @@ class ArgoverseFigureCreator:
         self.show_trajectory = show_trajectory
         self.trajectories_trace_indices = [0, 0]
         self.show_legend = show_legend
+        self.scale_variant = 2
 
         self.data_dir_path = 'data/val/'
         subdirs = [path for path in Path(self.data_dir_path).iterdir() if path.is_dir()]
@@ -96,6 +98,9 @@ class ArgoverseFigureCreator:
             range(1, self.number_of_scenes+1),
             [subdir.name for subdir in subdirs]
         ))
+
+        self.significant_scale_range_x = []
+        self.significant_scale_range_y = []
 
         self.current_scene_id = 1
         self.current_scene = self.generate_figure(
@@ -185,6 +190,9 @@ class ArgoverseFigureCreator:
         headings = np.zeros((number_of_tracks, max_timestamp + 1))
         track_colors = []
         track_types = []
+        track_categories = []
+        significant_tracks_ids = []
+
         for track_idx, track in enumerate(self.scenario.tracks):
             for objs in track.object_states:
                 coords[track_idx, objs.timestep, :] = objs.position
@@ -196,6 +204,32 @@ class ArgoverseFigureCreator:
                     else THEMECOLORS["magenta"]
             )
             track_types.append(track.object_type)
+            track_categories.append(track.category)
+
+            if track.category in [TrackCategory.FOCAL_TRACK, TrackCategory.SCORED_TRACK, TrackCategory.UNSCORED_TRACK]:
+                significant_tracks_ids.append(track_idx)
+
+        # calculating scale for significant tracks only
+        sign_x_coords = np.ma.masked_less(coords[significant_tracks_ids, :, 0], MASK_VALUE + 1).compressed()
+        sign_y_coords = np.ma.masked_less(coords[significant_tracks_ids, :, 1], MASK_VALUE + 1).compressed()
+        sign_scale_min_x, sign_scale_max_x = min(sign_x_coords), max(sign_x_coords)
+        sign_scale_min_y, sign_scale_max_y = min(sign_y_coords), max(sign_y_coords)
+
+        x_range = sign_scale_max_x - sign_scale_min_x
+        y_range = sign_scale_max_y - sign_scale_min_y
+        if y_range > x_range:
+            x_center = (sign_scale_min_x + sign_scale_max_x) / 2
+            self.significant_scale_range_x = [x_center - y_range / 2 - SIGNIFICANT_SCALE_DELTA,
+                                              x_center + y_range / 2 + SIGNIFICANT_SCALE_DELTA]
+            self.significant_scale_range_y = [sign_scale_min_y - SIGNIFICANT_SCALE_DELTA,
+                                              sign_scale_max_y + SIGNIFICANT_SCALE_DELTA]
+
+        else:
+            y_center = (sign_scale_min_y + sign_scale_max_y) / 2
+            self.significant_scale_range_x = [sign_scale_min_x - SIGNIFICANT_SCALE_DELTA,
+                                              sign_scale_max_x + SIGNIFICANT_SCALE_DELTA]
+            self.significant_scale_range_y = [y_center - x_range / 2 - SIGNIFICANT_SCALE_DELTA,
+                                              y_center + x_range / 2 + SIGNIFICANT_SCALE_DELTA]
 
         # frames generation
         frames = []
@@ -312,11 +346,7 @@ class ArgoverseFigureCreator:
             "layout": {},
             "frames": []
         }
-        fig_dict["layout"]["xaxis"] = {"showgrid": False, "zeroline": False, "showticklabels": False}
 
-        fig_dict["layout"]["yaxis"] = {"showgrid": False, "zeroline": False, "showticklabels": False,
-                                       "scaleanchor": "x", "scaleratio": 1}
-        fig_dict["layout"]["margin"] = dict(l=0, r=0, b=0, t=0)
 
         static_plot_data = self.make_static_data()
 
@@ -357,8 +387,8 @@ class ArgoverseFigureCreator:
                 "buttons": [
                     {
                         "args": [None, {"frame": {"duration": 0,
-                                                  "redraw": False},
-                                        "fromcurrent": True,
+                                                  "redraw": True},
+                                        "fromcurrent": False,
                                         "transition": {"duration": 0,
                                                        "easing": "quadratic-in-out"}
                                         }],
@@ -386,8 +416,17 @@ class ArgoverseFigureCreator:
             }
         ]
         fig_dict["layout"]["sliders"] = [sliders_dict]
-        fig = go.Figure(fig_dict)
 
+        fig_dict["layout"]["xaxis"] = {"showgrid": False, "zeroline": False, "showticklabels": False}
+
+        fig_dict["layout"]["yaxis"] = {"showgrid": False, "zeroline": False, "showticklabels": False,
+                                       "scaleanchor": "x", "scaleratio": 1}
+        if self.scale_variant == 2:
+            fig_dict["layout"]["xaxis"]["range"] = self.significant_scale_range_x
+            fig_dict["layout"]["yaxis"]["range"] = self.significant_scale_range_y
+        fig_dict["layout"]["margin"] = dict(l=0, r=0, b=0, t=0)
+
+        fig = go.Figure(fig_dict)
         return fig
 
     def get_current_scene(self):
@@ -443,6 +482,17 @@ class ArgoverseFigureCreator:
             self.show_trajectory = not self.show_trajectory
         print(f"After: {self.show_trajectory}")
         return self.current_scene, self.current_scene_id
+
+    def change_scene_scale(self, scale_variant):
+        fig = self.current_scene
+        if scale_variant == 1:                # as is
+            fig.update_layout(yaxis={"autorange": True, "fixedrange": False})
+        elif scale_variant == 2:              # significant
+            fig.layout.xaxis.range = self.significant_scale_range_x
+            fig.layout.yaxis.range = self.significant_scale_range_y
+            fig.update_layout(yaxis={"autorange": False, "fixedrange": True})
+        self.scale_variant = scale_variant
+        return fig, self.current_scene_id
 
 
 ### NOT USED ###
