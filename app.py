@@ -115,6 +115,7 @@ advanced_settings = html.Div(
     ]
 )
 
+loading_spinner = dcc.Loading(id="loading_spinner", children=[html.Div(id="loading_spinner_output")], type="default")
 
 app.layout = dbc.Container(
     [
@@ -122,7 +123,11 @@ app.layout = dbc.Container(
         dbc.Row(
             [
                 dbc.Col(
-                    [dropdown, html.Br(), button_group, html.Br(), html.Br(), advanced_settings],
+                    [dropdown, html.Br(),
+                     button_group, html.Br(), html.Br(),
+                     loading_spinner,
+                     advanced_settings,
+                     ],
                     width=2
                 ),
                 dbc.Col([graph], width=8),
@@ -148,16 +153,20 @@ def toggle_settings_collapse(n, is_open):
 @app.callback(
     Output(component_id='scene_graph', component_property='figure'),
     Output(component_id='scene_id', component_property='value'),
+    Output(component_id='loading_spinner_output', component_property='children'),
     Input(component_id='scene_id', component_property='value'),
     Input(component_id='next_scene_button', component_property='n_clicks'),
     Input(component_id='previous_scene_button', component_property='n_clicks'),
     Input(component_id='show-trajectory-switch', component_property='value'),
     Input(component_id='scale-radioitem', component_property='value')
 )
-def change_scene_id_by_clicking_buttons(scene_id_from_input, next_clicked, prev_clicked, switch_value, scale_variant):
+def change_scene_id_by_clicking_buttons(scene_id_from_input,
+                                        next_clicked,
+                                        prev_clicked,
+                                        traj_switch_value,
+                                        scale_variant):
     trigger_id = ctx.triggered_id
-
-    print(trigger_id)
+    print("trigger id: ", trigger_id)
     new_scene, new_scene_id = fc.current_scene, fc.current_scene_id
     if trigger_id == 'next_scene_button':
         new_scene, new_scene_id = fc.get_next_scene()
@@ -166,10 +175,10 @@ def change_scene_id_by_clicking_buttons(scene_id_from_input, next_clicked, prev_
     elif trigger_id == 'scene_id':
         new_scene, new_scene_id = fc.get_scene_by_id(int(scene_id_from_input))
     elif trigger_id == 'show-trajectory-switch':
-        new_scene, new_scene_id = fc.change_visibility_of_trajectories(switch_value)
+        new_scene, new_scene_id = fc.change_visibility_of_trajectories(traj_switch_value)
     elif trigger_id == 'scale-radioitem':
         new_scene, new_scene_id = fc.change_scene_scale(scale_variant)
-    return new_scene, str(new_scene_id)
+    return new_scene, str(new_scene_id), None
 
 
 if __name__ == '__main__':
