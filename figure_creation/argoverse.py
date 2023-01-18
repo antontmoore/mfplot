@@ -5,6 +5,7 @@ from av2.datasets.motion_forecasting.data_schema import ObjectType, TrackCategor
 from av2.map.map_api import ArgoverseStaticMap
 from pathlib import Path
 import numpy as np
+from . import DatasetPart
 
 THEMECOLORS = {
     'background': '#0e0e30',
@@ -80,32 +81,41 @@ track_category_text_by_category = \
 
 SIGNIFICANT_SCALE_DELTA = 20.
 
+
 class ArgoverseFigureCreator:
 
-    def __init__(self, show_trajectory=False, show_legend=False):
+    def __init__(self, dataset_part=DatasetPart.VAL, show_trajectory=False, show_legend=False):
         self.scenario = None
         self.static_map = None
+        self.dataset_part = dataset_part
         self.show_trajectory = show_trajectory
         self.trajectories_trace_indices = [0, 0]
         self.show_legend = show_legend
         self.scale_variant = 2
 
-        self.data_dir_path = 'data/val/'
-        subdirs = [path for path in Path(self.data_dir_path).iterdir() if path.is_dir()]
+        self.data_dir_path = {DatasetPart.TRAIN: 'data/argoverse/train/',
+                              DatasetPart.VAL:   'data/argoverse/val/',
+                              DatasetPart.TEST:  'data/argoverse/test/'}
 
-        self.number_of_scenes = len(subdirs)
-        self.dirname_by_id = dict(zip(
-            range(1, self.number_of_scenes+1),
-            [subdir.name for subdir in subdirs]
-        ))
+        self.subdirs = {
+            dataset_part: [path for path in Path(data_dir).iterdir() if path.is_dir()]
+            for (dataset_part, data_dir) in self.data_dir_path.items()
+        }
+
+        self.number_of_scenes = len(self.subdirs[dataset_part])
+        # self.dirname_by_id = dict(zip(
+        #     range(1, self.number_of_scenes+1),
+        #     [subdir.name for subdir in subdirs]
+        # ))
 
         self.significant_scale_range_x = []
         self.significant_scale_range_y = []
 
         self.current_scene_id = 1
-        self.current_scene = self.generate_figure(
-            self.dirname_by_id[self.current_scene_id]
-        )
+        self.current_scene = self.generate_figure(self.current_scene_id)
+
+        self.cached_scene = {dataset_part: self.current_scene}
+        self.cached_scene_id = {dataset_part: self.current_scene_id}
 
     def make_static_data(self):
 
@@ -332,10 +342,12 @@ class ArgoverseFigureCreator:
         return frames
 
     def generate_figure(self, scene_id):
-
-        scene_path = self.data_dir_path + scene_id
-        static_map_path = scene_path + f"/log_map_archive_{scene_id}.json"
-        scenario_path = scene_path + f"/scenario_{scene_id}.parquet"
+        scene_path = str(
+            self.subdirs[self.dataset_part][scene_id - 1]
+        )
+        scene_hash = scene_path.split('/')[-1]
+        static_map_path = scene_path + f"/log_map_archive_{scene_hash}.json"
+        scenario_path = scene_path + f"/scenario_{scene_hash}.parquet"
 
 
         self.scenario = scenario_serialization.load_argoverse_scenario_parquet(scenario_path)
@@ -432,15 +444,32 @@ class ArgoverseFigureCreator:
     def get_current_scene(self):
         return self.current_scene
 
+    def change_datapart(self, dataset_part):
+        dataset_part_enum = {'train': DatasetPart.TRAIN,
+                             'val': DatasetPart.VAL,
+                             'test': DatasetPart.TEST}[dataset_part]
+
+        self.cached_scene[self.dataset_part] = self.current_scene
+        self.cached_scene_id[self.dataset_part] = self.current_scene_id
+
+        self.dataset_part = dataset_part_enum
+        self.number_of_scenes = len(self.subdirs[dataset_part_enum])
+        if dataset_part_enum in self.cached_scene:
+            self.current_scene = self.cached_scene[dataset_part_enum]
+            self.current_scene_id = self.cached_scene_id[dataset_part_enum]
+        else:
+            self.current_scene_id = 1
+            self.current_scene = self.generate_figure(self.current_scene_id)
+        return self.current_scene, self.current_scene_id
+
+
     def get_next_scene(self):
 
         if self.current_scene_id == self.number_of_scenes:
             print(f"Try to get the scene {self.current_figure_id+1}, but we have only {self.number_of_scenes} scenes.")
         else:
             self.current_scene_id += 1
-            self.current_scene = self.generate_figure(
-                self.dirname_by_id[self.current_scene_id]
-            )
+            self.current_scene = self.generate_figure(self.current_scene_id)
 
         return self.current_scene, self.current_scene_id
 
@@ -450,9 +479,7 @@ class ArgoverseFigureCreator:
             print(f"Try to get the scene 0, but we start from 1.")
         else:
             self.current_scene_id -= 1
-            self.current_scene = self.generate_figure(
-                self.dirname_by_id[self.current_scene_id]
-            )
+            self.current_scene = self.generate_figure(self.current_scene_id)
 
         return self.current_scene, self.current_scene_id
 
@@ -463,9 +490,7 @@ class ArgoverseFigureCreator:
             print(f"Try to get the scene {scene_id}, but we have only {self.number_of_scenes} scenes.")
         else:
             self.current_scene_id = scene_id
-            self.current_scene = self.generate_figure(
-                self.dirname_by_id[scene_id]
-            )
+            self.current_scene = self.generate_figure(scene_id)
         return self.current_scene, self.current_scene_id
 
     def change_visibility_of_trajectories(self, new_visibility_value):

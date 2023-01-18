@@ -1,8 +1,10 @@
 from dash import Dash, html, dcc, Input, Output, ctx, State
 from figure_creation.argoverse import ArgoverseFigureCreator
+from figure_creation import DatasetPart
 import dash_bootstrap_components as dbc
 import os
 from PIL import Image
+
 
 fc = ArgoverseFigureCreator()
 # fig = fc.generate_figure(scene_id='0a0ef009-9d44-4399-99e6-50004d345f34')
@@ -25,7 +27,7 @@ waymo_logo = Image.open(os.getcwd() + "/images/waymo logo.png")
 argo_logo = Image.open(os.getcwd() + "/images/argo logo.png")
 yandex_logo = Image.open(os.getcwd() + "/images/yandex logo.png")
 lyft_logo = Image.open(os.getcwd() + "/images/lyft logo.png")
-dropdown = dcc.Dropdown(
+dataset_dropdown = dcc.Dropdown(
     [
         {
             "label": html.Span(
@@ -68,7 +70,43 @@ dropdown = dcc.Dropdown(
         },
     ],
     value="Argoverse",
-    clearable=False
+    clearable=False,
+    id="dataset_dropdown"
+)
+
+datapart_dropdown = dcc.Dropdown(
+    [
+        {
+            "label": html.Span("train",
+                               style={'font-size': 15,
+                                      'padding-left': 10,
+                                      'align-items': 'center',
+                                      'justify-content': 'center'}
+                               ),
+            "value": "train",
+        },
+        {
+            "label": html.Span("validation",
+                               style={'font-size': 15,
+                                      'padding-left': 10,
+                                      'align-items': 'center',
+                                      'justify-content': 'center'}
+                               ),
+            "value": "val",
+        },
+        {
+            "label": html.Span("test",
+                               style={'font-size': 15,
+                                      'padding-left': 10,
+                                      'align-items': 'center',
+                                      'justify-content': 'center'}
+                               ),
+            "value": "test",
+        },
+    ],
+    value="val",
+    clearable=False,
+    id="datapart_dropdown"
 )
 
 button_group = dbc.ButtonGroup(
@@ -123,9 +161,10 @@ app.layout = dbc.Container(
         dbc.Row(
             [
                 dbc.Col(
-                    [dropdown, html.Br(),
-                     button_group, html.Br(), html.Br(),
+                    [dbc.FormText("Dataset:"), dataset_dropdown, html.Br(),
+                     dbc.FormText("Part:"), datapart_dropdown, html.Br(),
                      loading_spinner,
+                     dbc.FormText("Scene:"), button_group, html.Br(), html.Br(),
                      advanced_settings,
                      ],
                     width=2
@@ -154,21 +193,26 @@ def toggle_settings_collapse(n, is_open):
     Output(component_id='scene_graph', component_property='figure'),
     Output(component_id='scene_id', component_property='value'),
     Output(component_id='loading_spinner_output', component_property='children'),
+    Input(component_id='datapart_dropdown', component_property='value'),
     Input(component_id='scene_id', component_property='value'),
     Input(component_id='next_scene_button', component_property='n_clicks'),
     Input(component_id='previous_scene_button', component_property='n_clicks'),
     Input(component_id='show-trajectory-switch', component_property='value'),
     Input(component_id='scale-radioitem', component_property='value')
 )
-def change_scene_id_by_clicking_buttons(scene_id_from_input,
-                                        next_clicked,
-                                        prev_clicked,
-                                        traj_switch_value,
-                                        scale_variant):
+def change_scene_by_clicking_buttons(
+        datapart,
+        scene_id_from_input,
+        next_clicked,
+        prev_clicked,
+        traj_switch_value,
+        scale_variant):
     trigger_id = ctx.triggered_id
     print("trigger id: ", trigger_id)
     new_scene, new_scene_id = fc.current_scene, fc.current_scene_id
-    if trigger_id == 'next_scene_button':
+    if trigger_id == 'datapart_dropdown':
+        new_scene, new_scene_id = fc.change_datapart(datapart)
+    elif trigger_id == 'next_scene_button':
         new_scene, new_scene_id = fc.get_next_scene()
     elif trigger_id == 'previous_scene_button':
         new_scene, new_scene_id = fc.get_previous_scene()
@@ -178,6 +222,8 @@ def change_scene_id_by_clicking_buttons(scene_id_from_input,
         new_scene, new_scene_id = fc.change_visibility_of_trajectories(traj_switch_value)
     elif trigger_id == 'scale-radioitem':
         new_scene, new_scene_id = fc.change_scene_scale(scale_variant)
+
+    print("--- \nscene_id = ", new_scene_id)
     return new_scene, str(new_scene_id), None
 
 
