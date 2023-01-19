@@ -34,6 +34,8 @@ bus_contour = np.array([[-6.0, 6.0,  6.0, -6.0, -6.0],
 ped_contour = np.array([[4.8, 7.7, 9.3, 9.3, 8.7, 8.4, 8.1, 8.1, 8.3, 8.5, 8.9, 9.5, 10.1, 10.7, 11.1, 11.3, 11.5, 11.5, 11.3, 11.2, 11., 10.5, 10., 9.3, 9.3, 9.7, 11.3, 13.9, 13.4, 10.4, 9.8, 9.3, 13.1, 11.7,  8.5,  7.1,  5.1,  3.9,  5.6,  6.1, 7.5, 6.1, 5.6, 4.3, 4.8],
                         [6.2, 3.8, 3.8, 3.3, 3.0, 2.6, 1.9, 1.4, 0.9, 0.6, 0.2, 0.0,  0.0,  0.2,  0.6,  0.9,  1.4,  1.9,  2.3,  2.6, 2.8,  3.2, 3.3, 3.3, 3.8, 4.0,  7.2,  8.6,  9.7,  8.2, 7.2, 9.5, 15.8, 16.7, 11.6, 14.1, 16.6, 15.9, 13.2, 12.2, 6.0, 7.0, 9.9, 9.8, 6.2]])
 ped_contour[1, :] = -ped_contour[1, :]
+ped_contour[0, :] = ped_contour[0, :] - 8.9
+ped_contour[1, :] = ped_contour[1, :] + 16.7/2
 ped_contour = np.multiply(ped_contour, 1/16.7*1.5)
 
 moto_contour = np.array([[-5.0, -3.0, -2.0, 2.0, 3.0, 5.0,  5.0,  3.0,  2.0, -2.0, -3.0, -5.0, -5.0],
@@ -208,11 +210,15 @@ class ArgoverseFigureCreator:
                 coords[track_idx, objs.timestep, :] = objs.position
                 headings[track_idx, objs.timestep] = objs.heading
 
-            track_colors.append(
-                color_by_category[track.category]
-                    if track.object_type is not ObjectType.PEDESTRIAN
-                    else THEMECOLORS["magenta"]
-            )
+            if (track.object_type is ObjectType.PEDESTRIAN and
+                    track.category not in [TrackCategory.FOCAL_TRACK,
+                                           TrackCategory.SCORED_TRACK,
+                                           TrackCategory.UNSCORED_TRACK]):
+                track_color = THEMECOLORS["magenta"]
+            else:
+                track_color = color_by_category[track.category]
+
+            track_colors.append(track_color)
             track_types.append(track.object_type)
             track_categories.append(track.category)
 
@@ -295,23 +301,6 @@ class ArgoverseFigureCreator:
                         }
                     )
 
-                    if track.category in visualize_trajectory_for_tracks:
-
-                        vehicle_trajectory = {
-                            "x": trace[:, 0],
-                            "y": trace[:, 1],
-                            "line":
-                                {"width": 1,
-                                 "color": track_color,
-                                 },
-                            "hoverinfo": 'none',
-                            "mode": 'lines',
-                            "showlegend": False,
-                            "fill": 'none',
-                            "visible": self.show_trajectory
-                         }
-                        trajectories.append(vehicle_trajectory)
-
                 else:
                     xdata = [] if empty_track else np.add(track_current_coords[0], object_contour[0, :]).tolist()
                     ydata = [] if empty_track else np.add(track_current_coords[1], object_contour[1, :]).tolist()
@@ -331,6 +320,22 @@ class ArgoverseFigureCreator:
                          "name": str(track_type).lower()[11:] + " " + str(track_idx),
                          }
                     )
+
+                if track.category in visualize_trajectory_for_tracks:
+                    trajectory = {
+                        "x": trace[:, 0],
+                        "y": trace[:, 1],
+                        "line":
+                            {"width": 1,
+                             "color": track_color,
+                             },
+                        "hoverinfo": 'none',
+                        "mode": 'lines',
+                        "showlegend": False,
+                        "fill": 'none',
+                        "visible": self.show_trajectory
+                    }
+                    trajectories.append(trajectory)
 
             frame = {"data": [*static_data, *vehicles_data, *others_data, *trajectories],
                      "name": str(ts)}
