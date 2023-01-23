@@ -3,6 +3,8 @@ from typing import List
 from .shared import THEMECOLORS
 from .shared import DatasetPart
 from .shared import none_vector
+from .shared import scale_object
+from .shared import WaymoTrackCategory
 from pathlib import Path
 # import math
 # import os
@@ -12,7 +14,7 @@ from pathlib import Path
 # from matplotlib import cm
 # import matplotlib.animation as animation
 # import matplotlib.pyplot as plt
-#
+from enum import Enum
 import numpy as np
 # # from IPython.display import HTML
 # import itertools
@@ -80,7 +82,7 @@ ROADDASHBYTYPE = {
     19: 'solid'
 }
 
-ROADFLLBYTYPE = {
+ROADFILLBYTYPE = {
     1: 'none',
     2: 'none',
     3: 'none',
@@ -98,6 +100,15 @@ ROADFLLBYTYPE = {
     18: 'toself',
     19: 'toself'
 }
+
+color_by_category = {
+                WaymoTrackCategory.SDC:              THEMECOLORS["green"],
+                WaymoTrackCategory.TRACK_TO_PREDICT: THEMECOLORS["blue"],
+                WaymoTrackCategory.UNSCORED:         THEMECOLORS["white"],
+            }
+
+visualize_trajectory_for_tracks = [WaymoTrackCategory.SDC,
+                                   WaymoTrackCategory.TRACK_TO_PREDICT]
 
 class WaymoFigureCreator(FigureCreatorBaseClass):
     def __init__(self, dataset_part=DatasetPart.VAL, show_trajectory=False, show_legend=False):
@@ -129,6 +140,8 @@ class WaymoFigureCreator(FigureCreatorBaseClass):
 
         self.cached_scene = {dataset_part: self.current_scene}
         self.cached_scene_id = {dataset_part: self.current_scene_id}
+
+        # TODO: Move shared to the base class
 
 
 
@@ -180,16 +193,97 @@ class WaymoFigureCreator(FigureCreatorBaseClass):
                 },
                 "hoverinfo": 'none',
                 "mode": 'lines',
-                "fill": ROADFLLBYTYPE[rtype],
+                "fill": ROADFILLBYTYPE[rtype],
                 "showlegend": False
             }
             self.static_data.append(this_type_trace)
         return self.static_data
 
     def make_dynamic_data(self, static_data: List) -> List:
+
+        past_state_x = self.decoded_example['state/past/x'].numpy()
+        past_state_y = self.decoded_example['state/past/y'].numpy()
+        past_state_yaw = self.decoded_example['state/past/bbox_yaw'].numpy()
+        past_state_length = self.decoded_example['state/past/length'].numpy()
+        past_state_width = self.decoded_example['state/past/width'].numpy()
+
+        current_state_x = self.decoded_example['state/current/x'].numpy()
+        current_state_y = self.decoded_example['state/current/y'].numpy()
+        current_state_yaw = self.decoded_example['state/current/bbox_yaw'].numpy()
+        current_state_length = self.decoded_example['state/current/length'].numpy()
+        current_state_width = self.decoded_example['state/current/width'].numpy()
+
+        future_state_x = self.decoded_example['state/future/x'].numpy()
+        future_state_y = self.decoded_example['state/future/y'].numpy()
+        future_state_yaw = self.decoded_example['state/future/bbox_yaw'].numpy()
+        future_state_length = self.decoded_example['state/future/length'].numpy()
+        future_state_width = self.decoded_example['state/future/width'].numpy()
+
+        tracks_to_predict = self.decoded_example['state/tracks_to_predict'].numpy()
+        is_sdc = self.decoded_example['state/is_sdc'].numpy()
+        track_type = self.decoded_example['state/type'].numpy()
+
+        all_state_x = np.hstack((past_state_x, current_state_x, future_state_x))
+        all_state_y = np.hstack((past_state_y, current_state_y, future_state_y))
+        all_state_yaw = np.hstack((past_state_yaw, current_state_yaw, future_state_yaw))
+        all_state_length = np.hstack((past_state_length, current_state_length, future_state_length))
+        all_state_width = np.hstack((past_state_width, current_state_width, future_state_width))
+
+        states = np.concatenate((all_state_x[:, :, np.newaxis],
+                                 all_state_y[:, :, np.newaxis],
+                                 all_state_yaw[:, :, np.newaxis],
+                                 all_state_length[:, :, np.newaxis],
+                                 all_state_width[:, :, np.newaxis],), axis=2)
+
+        del past_state_x, past_state_y, past_state_yaw, past_state_length, past_state_width
+        del current_state_x, current_state_y, current_state_yaw, current_state_length, current_state_width
+        del future_state_x, future_state_y, future_state_yaw, future_state_length, future_state_width
+
+        max_timestamp = states.shape[1]
+        number_of_objects = is_sdc[is_sdc >= 0].shape[0]
+
+        track_category = [None] * number_of_objects
+        for track_idx in range(number_of_objects):
+            if is_sdc[track_idx] == 1:
+                track_category[track_idx] = WaymoTrackCategory.SDC
+            elif tracks_to_predict[track_idx] == 1:
+                track_category[track_idx] = WaymoTrackCategory.TRACK_TO_PREDICT
+            else:
+                track_category[track_idx] = WaymoTrackCategory.UNSCORED
+
         frames = []
-        for ts in range(3):
-            frame = {"data": self.static_data,
+        for ts in range(max_timestamp):
+            objects_data = []
+
+            for track_idx in range(number_of_objects):
+                current_state = states[track_idx, ts, :]
+                if current_state[0] == -1:
+                    xdata, ydata = [], []
+                else:
+                    object_contour = scale_object(current_state[3], current_state[4], track_type[track_idx])
+                    if track_type[track_idx] != 2:
+                        # not pedestrian
+                        rot_m = np.array([[np.cos(current_state[2]), -np.sin(current_state[2])],
+                                          [np.sin(current_state[2]), np.cos(current_state[2])]])
+                        object_contour = rot_m @ object_contour
+                    xdata = object_contour[0, :] + current_state[0]
+                    ydata = object_contour[1, :] + current_state[1]
+
+                object_trace = {
+                    "x": xdata,
+                    "y": ydata,
+                    "line": {
+                        "width": 1,
+                        "color": color_by_category[track_category[track_idx]],
+                    },
+                    "hoverinfo": 'none',
+                    "mode": 'lines',
+                    "fill": 'toself',
+                    "showlegend": False
+                }
+                objects_data.append(object_trace)
+
+            frame = {"data": [*self.static_data, *objects_data],
                      "name": str(ts)}
             frames.append(frame)
         return frames
@@ -380,94 +474,5 @@ class WaymoFigureCreator(FigureCreatorBaseClass):
 
         return newxyz, newtype
 
-
-
-
-
-
-
-def visualize_all_agents_smooth(
-    decoded_example,
-    size_pixels=1000,
-):
-  """Visualizes all agent predicted trajectories in a serie of images.
-
-  Args:
-    decoded_example: Dictionary containing agent info about all modeled agents.
-    size_pixels: The size in pixels of the output image.
-
-  Returns:
-    T of [H, W, 3] uint8 np.arrays of the drawn matplotlib's figure canvas.
-  """
-  # [num_agents, num_past_steps, 2] float32.
-  past_states = tf.stack(
-      [decoded_example['state/past/x'], decoded_example['state/past/y']],
-      -1).numpy()
-  past_states_mask = decoded_example['state/past/valid'].numpy() > 0.0
-
-  # [num_agents, 1, 2] float32.
-  current_states = tf.stack(
-      [decoded_example['state/current/x'], decoded_example['state/current/y']],
-      -1).numpy()
-  current_states_mask = decoded_example['state/current/valid'].numpy() > 0.0
-
-  # [num_agents, num_future_steps, 2] float32.
-  future_states = tf.stack(
-      [decoded_example['state/future/x'], decoded_example['state/future/y']],
-      -1).numpy()
-  future_states_mask = decoded_example['state/future/valid'].numpy() > 0.0
-
-  # [num_points, 3] float32.
-  roadgraph_xyz = decoded_example['roadgraph_samples/xyz'].numpy()
-
-  num_agents, num_past_steps, _ = past_states.shape
-  num_future_steps = future_states.shape[1]
-
-  # color_map = get_colormap(num_agents)
-  #
-  # # [num_agens, num_past_steps + 1 + num_future_steps, depth] float32.
-  # all_states = np.concatenate([past_states, current_states, future_states], 1)
-  #
-  # # [num_agens, num_past_steps + 1 + num_future_steps] float32.
-  # all_states_mask = np.concatenate(
-  #     [past_states_mask, current_states_mask, future_states_mask], 1)
-  #
-  # center_y, center_x, width = get_viewport(all_states, all_states_mask)
-  #
-  # images = []
-  #
-  # # Generate images from past time steps.
-  # for i, (s, m) in enumerate(
-  #     zip(
-  #         np.split(past_states, num_past_steps, 1),
-  #         np.split(past_states_mask, num_past_steps, 1))):
-  #   im = visualize_one_step(s[:, 0], m[:, 0], roadgraph_xyz,
-  #                           'past: %d' % (num_past_steps - i), center_y,
-  #                           center_x, width, color_map, size_pixels)
-  #   images.append(im)
-  #
-  # # Generate one image for the current time step.
-  # s = current_states
-  # m = current_states_mask
-  #
-  # im = visualize_one_step(s[:, 0], m[:, 0], roadgraph_xyz, 'current', center_y,
-  #                         center_x, width, color_map, size_pixels)
-  # images.append(im)
-  #
-  # # Generate images from future time steps.
-  # for i, (s, m) in enumerate(
-  #     zip(
-  #         np.split(future_states, num_future_steps, 1),
-  #         np.split(future_states_mask, num_future_steps, 1))):
-  #   im = visualize_one_step(s[:, 0], m[:, 0], roadgraph_xyz,
-  #                           'future: %d' % (i + 1), center_y, center_x, width,
-  #                           color_map, size_pixels)
-  #   images.append(im)
-  #
-  # return images
-  return None
-
-# images = visualize_all_agents_smooth(parsed)
-ay = 1
 
 

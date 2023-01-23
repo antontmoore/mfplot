@@ -29,6 +29,8 @@ MASK_VALUE = -100500
 vehicle_contour = np.array([[-2.0, 1.7, 2.0,  2.0,  1.7, -2.0, -2.0],
                             [0.8,  0.8, 0.5, -0.5, -0.8, -0.8,  0.8]])
 
+
+
 bus_contour = np.array([[-6.0, 6.0,  6.0, -6.0, -6.0],
                         [1.3,  1.3, -1.3, -1.3,  1.3]])
 
@@ -46,6 +48,32 @@ moto_contour = np.multiply(0.4, moto_contour)
 other_contour = np.array([[-6.0, -3.0, 3.0, 6.0,  3.0, -3.0, -6.0],
                           [ 0.0,  5.0, 5.0, 0.0, -5.0, -5.0,  0.0]])
 other_contour = np.multiply(0.2, other_contour)
+
+
+class WaymoTrackCategory(Enum):
+    SDC: int = 0
+    TRACK_TO_PREDICT: int = 1
+    UNSCORED: int = 2
+
+def scale_object(length, width, object_type=0):
+    # waymo types
+    # Unset=0, Vehicle=1, Pedestrian=2, Cyclist=3, Other=4
+    contour = {
+        0: vehicle_contour,
+        1: vehicle_contour,
+        2: ped_contour,
+        3: moto_contour,
+        4: other_contour,
+    }[object_type]
+
+    contour_scale_x = max(contour[0, :]) - min(contour[0, :])
+    contour_scale_y = max(contour[1, :]) - min(contour[1, :])
+    scaled_contour = np.vstack((
+        contour[0, :] * (length / contour_scale_x),
+        contour[1, :] * (width / contour_scale_y)
+    ))
+    return scaled_contour
+
 none_vector = np.array([None, None], ndmin=2)
 SIGNIFICANT_SCALE_DELTA = 20.
 

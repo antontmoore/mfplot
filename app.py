@@ -1,12 +1,14 @@
 from dash import Dash, html, dcc, Input, Output, ctx, State
 from figure_creation.argoverse import ArgoverseFigureCreator
+from figure_creation.waymo import WaymoFigureCreator
 from figure_creation import DatasetPart
 import dash_bootstrap_components as dbc
 import os
 from PIL import Image
 
 
-fc = ArgoverseFigureCreator()
+# fc = ArgoverseFigureCreator()
+fc = WaymoFigureCreator()
 # fig = fc.generate_figure(scene_id='0a0ef009-9d44-4399-99e6-50004d345f34')
 fig = fc.get_current_scene()
 
@@ -155,76 +157,81 @@ advanced_settings = html.Div(
 
 loading_spinner = dcc.Loading(id="loading_spinner", children=[html.Div(id="loading_spinner_output")], type="default")
 
-app.layout = dbc.Container(
-    [
-        header,
-        dbc.Row(
-            [
-                dbc.Col(
-                    [dbc.FormText("Dataset:"), dataset_dropdown, html.Br(),
-                     dbc.FormText("Part:"), datapart_dropdown, html.Br(),
-                     loading_spinner,
-                     dbc.FormText("Scene:"), button_group, html.Br(), html.Br(),
-                     advanced_settings,
-                     ],
-                    width=2
-                ),
-                dbc.Col([graph], width=8),
-            ]
-        ),
-    ],
+# app.layout = dbc.Container(
+#     [
+#         header,
+#         dbc.Row(
+#             [
+#                 dbc.Col(
+#                     [dbc.FormText("Dataset:"), dataset_dropdown, html.Br(),
+#                      dbc.FormText("Part:"), datapart_dropdown, html.Br(),
+#                      loading_spinner,
+#                      dbc.FormText("Scene:"), button_group, html.Br(), html.Br(),
+#                      advanced_settings,
+#                      ],
+#                     width=2
+#                 ),
+#                 dbc.Col([graph], width=8),
+#             ]
+#         ),
+#     ],
+#     fluid=True,
+#     className="dbc",
+# )
+
+app.layout = dbc.Container(graph,
     fluid=True,
     className="dbc",
 )
 
-
-@app.callback(
-    Output("settings-panel", "is_open"),
-    [Input("settings-collapse-button", "n_clicks")],
-    [State("settings-panel", "is_open")],
-)
-def toggle_settings_collapse(n, is_open):
-    if n:
-        return not is_open
-    return is_open
-
-
-@app.callback(
-    Output(component_id='scene_graph', component_property='figure'),
-    Output(component_id='scene_id', component_property='value'),
-    Output(component_id='loading_spinner_output', component_property='children'),
-    Input(component_id='datapart_dropdown', component_property='value'),
-    Input(component_id='scene_id', component_property='value'),
-    Input(component_id='next_scene_button', component_property='n_clicks'),
-    Input(component_id='previous_scene_button', component_property='n_clicks'),
-    Input(component_id='show-trajectory-switch', component_property='value'),
-    Input(component_id='scale-radioitem', component_property='value')
-)
-def change_scene_by_clicking_buttons(
-        datapart,
-        scene_id_from_input,
-        next_clicked,
-        prev_clicked,
-        traj_switch_value,
-        scale_variant):
-    trigger_id = ctx.triggered_id
-    print("trigger id: ", trigger_id)
-    new_scene, new_scene_id = fc.current_scene, fc.current_scene_id
-    if trigger_id == 'datapart_dropdown':
-        new_scene, new_scene_id = fc.change_datapart(datapart)
-    elif trigger_id == 'next_scene_button':
-        new_scene, new_scene_id = fc.get_next_scene()
-    elif trigger_id == 'previous_scene_button':
-        new_scene, new_scene_id = fc.get_previous_scene()
-    elif trigger_id == 'scene_id':
-        new_scene, new_scene_id = fc.get_scene_by_id(int(scene_id_from_input))
-    elif trigger_id == 'show-trajectory-switch':
-        new_scene, new_scene_id = fc.change_visibility_of_trajectories(traj_switch_value)
-    elif trigger_id == 'scale-radioitem':
-        new_scene, new_scene_id = fc.change_scene_scale(scale_variant)
-
-    print("--- \nscene_id = ", new_scene_id)
-    return new_scene, str(new_scene_id), None
+#
+# @app.callback(
+#     Output("settings-panel", "is_open"),
+#     [Input("settings-collapse-button", "n_clicks")],
+#     [State("settings-panel", "is_open")],
+# )
+# def toggle_settings_collapse(n, is_open):
+#     if n:
+#         return not is_open
+#     return is_open
+#
+#
+# @app.callback(
+#     Output(component_id='scene_graph', component_property='figure'),
+#     Output(component_id='scene_id', component_property='value'),
+#     Output(component_id='loading_spinner_output', component_property='children'),
+#     Input(component_id='datapart_dropdown', component_property='value'),
+#     Input(component_id='scene_id', component_property='value'),
+#     Input(component_id='next_scene_button', component_property='n_clicks'),
+#     Input(component_id='previous_scene_button', component_property='n_clicks'),
+#     Input(component_id='show-trajectory-switch', component_property='value'),
+#     Input(component_id='scale-radioitem', component_property='value')
+# )
+# def change_scene_by_clicking_buttons(
+#         datapart,
+#         scene_id_from_input,
+#         next_clicked,
+#         prev_clicked,
+#         traj_switch_value,
+#         scale_variant):
+#     trigger_id = ctx.triggered_id
+#     print("trigger id: ", trigger_id)
+#     new_scene, new_scene_id = fc.current_scene, fc.current_scene_id
+#     if trigger_id == 'datapart_dropdown':
+#         new_scene, new_scene_id = fc.change_datapart(datapart)
+#     elif trigger_id == 'next_scene_button':
+#         new_scene, new_scene_id = fc.get_next_scene()
+#     elif trigger_id == 'previous_scene_button':
+#         new_scene, new_scene_id = fc.get_previous_scene()
+#     elif trigger_id == 'scene_id':
+#         new_scene, new_scene_id = fc.get_scene_by_id(int(scene_id_from_input))
+#     elif trigger_id == 'show-trajectory-switch':
+#         new_scene, new_scene_id = fc.change_visibility_of_trajectories(traj_switch_value)
+#     elif trigger_id == 'scale-radioitem':
+#         new_scene, new_scene_id = fc.change_scene_scale(scale_variant)
+#
+#     print("--- \nscene_id = ", new_scene_id)
+#     return new_scene, str(new_scene_id), None
 
 
 if __name__ == '__main__':
