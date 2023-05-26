@@ -58,7 +58,7 @@ ROADCOLORBYTYPE = {
     13: THEMECOLORS['yellow'],
     15: THEMECOLORS['dark-green'],
     16: THEMECOLORS['light-grey'],
-    17: THEMECOLORS['red'],
+    17: THEMECOLORS['blue'],
     18: THEMECOLORS['magenta'],
     19: THEMECOLORS['red']
 
@@ -155,8 +155,8 @@ class WaymoFigureCreator(FigureCreatorBaseClass):
         # newxyz, newtype = roadgraph_xyz, roadgraph_type
 
 
-        for rtype in [1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19]:
-        # for rtype in [19]:
+        # for rtype in [1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19]:
+        for rtype in [17]:
             this_type_xyz = newxyz[np.where(newtype == rtype)[0], :]
             if this_type_xyz.shape[0] == 0:
                 # no contours of this type
@@ -183,9 +183,20 @@ class WaymoFigureCreator(FigureCreatorBaseClass):
                 this_type_xyz = ob_xyz
 
             print("type: ", rtype, "\t  amount: ", this_type_xyz.shape[0])
+            xydata = none_vector
+            if rtype == 17:
+                stop_contour = scale_object(length=1, width=1, object_type=5).T
+                for j in range(this_type_xyz.shape[0]):
+                    xydata = np.vstack((xydata, np.add(stop_contour, this_type_xyz[j, :2])))
+
+
+            else:
+                xdata = this_type_xyz[:, 0]
+                ydata = this_type_xyz[:, 1]
+
             this_type_trace = {
-                "x": this_type_xyz[:, 0].tolist(),
-                "y": this_type_xyz[:, 1].tolist(),
+                "x": xdata.tolist(),
+                "y": ydata.tolist(),
                 "line": {
                     "width": 1,
                     "color": ROADCOLORBYTYPE[rtype],
@@ -197,10 +208,12 @@ class WaymoFigureCreator(FigureCreatorBaseClass):
                 "showlegend": False
             }
             self.static_data.append(this_type_trace)
+
         return self.static_data
 
     def make_dynamic_data(self, static_data: List) -> List:
 
+        # object states
         past_state_x = self.decoded_example['state/past/x'].numpy()
         past_state_y = self.decoded_example['state/past/y'].numpy()
         past_state_yaw = self.decoded_example['state/past/bbox_yaw'].numpy()
@@ -239,8 +252,26 @@ class WaymoFigureCreator(FigureCreatorBaseClass):
         del current_state_x, current_state_y, current_state_yaw, current_state_length, current_state_width
         del future_state_x, future_state_y, future_state_yaw, future_state_length, future_state_width
 
+        # traffic light
+        tl_past_state = self.decoded_example['traffic_light_state/past/state'].numpy()
+        tl_past_x = self.decoded_example['traffic_light_state/past/x'].numpy()
+        tl_past_y = self.decoded_example['traffic_light_state/past/y'].numpy()
+
+        tl_current_state = self.decoded_example['traffic_light_state/current/state'].numpy()
+        tl_current_x = self.decoded_example['traffic_light_state/current/x'].numpy()
+        tl_current_y = self.decoded_example['traffic_light_state/current/y'].numpy()
+
+        tl_future_state = self.decoded_example['traffic_light_state/future/state'].numpy()
+        tl_future_x = self.decoded_example['traffic_light_state/future/x'].numpy()
+        tl_future_y = self.decoded_example['traffic_light_state/future/y'].numpy()
+
+        all_tl_state = np.vstack((tl_past_state, tl_current_state, tl_future_state)).T
+        all_tl_x = np.vstack((tl_past_x, tl_current_x, tl_future_x)).T
+        all_tl_y = np.vstack((tl_past_y, tl_current_y, tl_future_y)).T
+
         max_timestamp = states.shape[1]
         number_of_objects = is_sdc[is_sdc >= 0].shape[0]
+        number_of_traffic_lights = all_tl_state.shape[0]
 
         track_category = [None] * number_of_objects
         for track_idx in range(number_of_objects):
@@ -253,8 +284,9 @@ class WaymoFigureCreator(FigureCreatorBaseClass):
 
         frames = []
         for ts in range(max_timestamp):
-            objects_data = []
 
+            # objects
+            objects_data = []
             for track_idx in range(number_of_objects):
                 current_state = states[track_idx, ts, :]
                 if current_state[0] == -1:
@@ -283,13 +315,33 @@ class WaymoFigureCreator(FigureCreatorBaseClass):
                 }
                 objects_data.append(object_trace)
 
-            frame = {"data": [*self.static_data, *objects_data],
+            # traffic lights
+            tl_now = all_tl_state[:, ts]
+
+            traffic_lights_trace = {
+                "x": all_tl_x[tl_now > 0, ts],
+                "y": all_tl_y[tl_now > 0, ts],
+                "line": {
+                    "width": 1,
+                    "color": THEMECOLORS["red"],
+                },
+                "hoverinfo": 'none',
+                "mode": 'markers',
+                "fill": 'none',
+                "showlegend": False
+            }
+
+            # for tl_idx in range(number_of_traffic_lights):
+
+            frame = {"data": [*self.static_data, *objects_data, traffic_lights_trace],
                      "name": str(ts)}
             frames.append(frame)
         return frames
 
     def read_scene_data(self, scene_id):
         FILENAME = '/Users/antontmur/projects/mfplot/data/waymo/val/uncompressed-tf_example-validation-validation_tfexample.tfrecord-00000-of-00150'
+        FILENAME = '/Users/antontmur/projects/mfplot/data/waymo/train/uncompressed-tf_example-training-training_tfexample.tfrecord-00000-of-01000'
+        # FILENAME = '/Users/antontmur/projects/mfplot/data/waymo/train/uncompressed-tf_example-training-training_tfexample.tfrecord-00001-of-01000'
 
         # Example field definition
         roadgraph_features = {
@@ -410,6 +462,12 @@ class WaymoFigureCreator(FigureCreatorBaseClass):
                 tf.io.FixedLenFeature([10, 16], tf.float32, default_value=None),
             'traffic_light_state/past/z':
                 tf.io.FixedLenFeature([10, 16], tf.float32, default_value=None),
+            'traffic_light_state/future/state':
+                tf.io.FixedLenFeature([80, 16], tf.int64, default_value=None),
+            'traffic_light_state/future/x':
+                tf.io.FixedLenFeature([80, 16], tf.float32, default_value=None),
+            'traffic_light_state/future/y':
+                tf.io.FixedLenFeature([80, 16], tf.float32, default_value=None),
         }
 
         features_description = {}

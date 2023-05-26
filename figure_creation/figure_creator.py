@@ -98,13 +98,14 @@ class FigureCreatorBaseClass(ABC):
         ]
         fig_dict["layout"]["sliders"] = [sliders_dict]
 
-        fig_dict["layout"]["xaxis"] = {"showgrid": False, "zeroline": False, "showticklabels": False}
+        fig_dict["layout"]["xaxis"] = {"showgrid": False, "zeroline": False, "showticklabels": True}
 
-        fig_dict["layout"]["yaxis"] = {"showgrid": False, "zeroline": False, "showticklabels": False,
+        fig_dict["layout"]["yaxis"] = {"showgrid": False, "zeroline": False, "showticklabels": True,
                                        "scaleanchor": "x", "scaleratio": 1}
-        if self.scale_variant == 2:
-            fig_dict["layout"]["xaxis"]["range"] = self.significant_scale_range_x
-            fig_dict["layout"]["yaxis"]["range"] = self.significant_scale_range_y
+        #TODO: don't forget
+        # if self.scale_variant == 2:
+        #     fig_dict["layout"]["xaxis"]["range"] = self.significant_scale_range_x
+        #     fig_dict["layout"]["yaxis"]["range"] = self.significant_scale_range_y
         fig_dict["layout"]["margin"] = dict(l=0, r=0, b=0, t=0)
 
         fig = Figure(fig_dict)

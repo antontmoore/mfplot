@@ -49,21 +49,36 @@ other_contour = np.array([[-6.0, -3.0, 3.0, 6.0,  3.0, -3.0, -6.0],
                           [ 0.0,  5.0, 5.0, 0.0, -5.0, -5.0,  0.0]])
 other_contour = np.multiply(0.2, other_contour)
 
+stop_contour = np.array([[-3.0, -1.0, 1.0, 3.0,  3.0,  1.0, -1.0, -3.0, -3.0],
+                         [ 1.0,  3.0, 3.0, 1.0, -1.0, -3.0, -3.0, -1.0,  1.0]])
+
 
 class WaymoTrackCategory(Enum):
     SDC: int = 0
     TRACK_TO_PREDICT: int = 1
     UNSCORED: int = 2
 
+class WaymoTrafficLightState(Enum):
+    Unknown: int = 0
+    Arrow_Stop: int = 1
+    Arrow_Caution: int = 2
+    Arrow_Go: int = 3
+    Stop: int = 4
+    Caution: int = 5
+    Go: int = 6
+    Flashing_Stop: int = 7
+    Flashing_Caution: int = 8
+
 def scale_object(length, width, object_type=0):
     # waymo types
-    # Unset=0, Vehicle=1, Pedestrian=2, Cyclist=3, Other=4
+    # Unset=0, Vehicle=1, Pedestrian=2, Cyclist=3, Other=4, StopSign=5
     contour = {
         0: vehicle_contour,
         1: vehicle_contour,
         2: ped_contour,
         3: moto_contour,
         4: other_contour,
+        5: stop_contour
     }[object_type]
 
     contour_scale_x = max(contour[0, :]) - min(contour[0, :])
