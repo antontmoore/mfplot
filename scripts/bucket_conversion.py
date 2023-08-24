@@ -17,8 +17,8 @@ def convert_bucket(bucket_from_name,
                    bucket_to_name,
                    dir_for_download,
                    dir_for_store,
-                   max_parts=2,
-                   max_scenes=5):
+                   max_parts=0,
+                   max_scenes=0):
 
     wc = WaymoConvertor()
 
