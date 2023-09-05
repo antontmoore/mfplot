@@ -44,7 +44,7 @@ def convert_bucket(bucket_from_name,
                 print(f"  🌍 Downloading file: \t\t{filename}")
                 blob.download_to_filename(path_download_file)
 
-            print(f"  🚗 Converting file: \t\t{filename}", end="\r")
+            print(f"  🚗 Converting file: \t\t{filename}")
             part_name = "part" + filename.split("-")[-3]
             p = Path() / dir_for_store / tvt_name / part_name
             path_dir_for_saving = p.resolve()
@@ -60,7 +60,7 @@ def convert_bucket(bucket_from_name,
 
                 with open(path2save, 'wb') as file_to_write:
                     pickle.dump(scene, file_to_write)
-                    path2save_in_bucket = "/".join(path2save.split('/')[-3:])
+                    path2save_in_bucket = "waymo/" + "/".join(path2save.split('/')[-3:])
                     blob = bucket_to.blob(path2save_in_bucket)
                     blob.upload_from_filename(path2save)
 
