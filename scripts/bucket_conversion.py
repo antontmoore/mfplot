@@ -58,10 +58,11 @@ def convert_bucket(bucket_from_name,
                 path2save = path_dir_for_saving / (scene.scene_id + ".pkl")
                 path2save = str(path2save.absolute())
 
-                pickle.dump(scene, open(path2save, 'wb'))
-                path2save_in_bucket = "/".join(path2save.split('/')[-3:])
-                blob = bucket_to.blob(path2save_in_bucket)
-                blob.upload_from_filename(path2save)
+                with open(path2save, 'wb') as file_to_write:
+                    pickle.dump(scene, file_to_write)
+                    path2save_in_bucket = "/".join(path2save.split('/')[-3:])
+                    blob = bucket_to.blob(path2save_in_bucket)
+                    blob.upload_from_filename(path2save)
 
                 scene_counter += 1
                 if max_scenes and scene_counter >= max_scenes:
@@ -98,6 +99,8 @@ if __name__ == "__main__":
     parser.add_argument('-bucket_to_name', type=str, default='motion_prediction_data_v_0_1')
     parser.add_argument('-dir_for_download', type=str, default='../data/waymo')
     parser.add_argument('-dir_for_store', type=str, default='../data/waymo_converted')
+    parser.add_argument('-max_parts', type=int, default=0)
+    parser.add_argument('-max_scenes', type=int, default=0)
     params = parser.parse_args()
 
     convert_bucket(
@@ -105,4 +108,6 @@ if __name__ == "__main__":
         bucket_to_name=params.bucket_to_name,
         dir_for_download=params.dir_for_download,
         dir_for_store=params.dir_for_store,
+        max_parts=params.max_parts,
+        max_scenes=params.max_scenes
     )
