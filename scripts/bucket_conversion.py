@@ -28,14 +28,27 @@ def convert_bucket(bucket_from_name,
 
     for tvt_name in DIRS:
         print(f"\n📂 Converting dir: \t{tvt_name}")
-        parts_counter = 0
-        for blob in bucket_from.list_blobs(prefix=BF_PATH_PREFIX + tvt_name):
+        for parts_counter, blob in enumerate(bucket_from.list_blobs(prefix=BF_PATH_PREFIX + tvt_name)):
             filename_path_splitted = blob.name.split('/')
             dirname, filename = filename_path_splitted[-2:]
+            part_name = "part" + filename.split("-")[-3]
 
+
+
+            # paths for download and saving
             p = Path() / dir_for_download / dirname
             path_download_dir = p.resolve()
+            p = Path() / dir_for_store / tvt_name / part_name
+            path_dir_for_saving = p.resolve()
+
+            # if we already have next dir in destination bucket, this folder is already converted
+            if exist_next_dir(bucket_to, path_dir_for_saving, part_name):
+                print(f"  ⏭️ Skipping the part \t\t{filename}")
+                continue
+
+            # create dirs if not created
             make_dir_with_parents(path_download_dir)
+            make_dir_with_parents(path_dir_for_saving)
 
             path_download_file = path_download_dir / filename
             if path_download_file.exists():
@@ -45,13 +58,8 @@ def convert_bucket(bucket_from_name,
                 blob.download_to_filename(path_download_file)
 
             print(f"  🚗 Converting file: \t\t{filename}")
-            part_name = "part" + filename.split("-")[-3]
-            p = Path() / dir_for_store / tvt_name / part_name
-            path_dir_for_saving = p.resolve()
-            make_dir_with_parents(path_dir_for_saving)
 
             scene_counter = 0
-
             for scene, counter, total in wc.read_and_convert_dataset_part(path_download_file):
                 print(f"    {scene.scene_id}  ->  {counter} of {total}")
 
@@ -76,8 +84,7 @@ def convert_bucket(bucket_from_name,
             path_download_file.unlink()
             shutil.rmtree(path_dir_for_saving)
 
-            parts_counter += 1
-            if max_parts and parts_counter >= max_parts:
+            if max_parts and parts_counter + 1 >= max_parts:
                 print(f"Processed maximum parts of the directory (max_parts = {max_parts})\n")
                 break
 
@@ -91,6 +98,20 @@ def make_dir_with_parents(path):
 
     if not path.exists():
         path.mkdir()
+
+def exist_next_dir(bucket_to, dir_path, part_name):
+
+    path2part_in_bucket = "waymo/" + "/".join(str(dir_path).split('/')[-2:])
+    partnum = int(path2part_in_bucket[-5:])
+    next_part_num = str(partnum + 1)
+    next_part_num = "0" * (5 - len(next_part_num)) + next_part_num
+
+    path2nextpart_in_bucket = path2part_in_bucket[:-5] + next_part_num
+    try:
+        first = next(bucket_to.list_blobs(prefix=path2nextpart_in_bucket))
+    except StopIteration:
+        return False
+    return True
 
 
 if __name__ == "__main__":
