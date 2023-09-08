@@ -5,6 +5,7 @@ import warnings
 import pickle
 from google.cloud import storage
 import sys
+from distutils.util import strtobool
 
 sys.path.append('../')
 from data_model.waymo_convertor import WaymoConvertor
@@ -17,6 +18,7 @@ def convert_bucket(bucket_from_name,
                    bucket_to_name,
                    dir_for_download,
                    dir_for_store,
+                   skip_existing=True,
                    max_parts=0,
                    max_scenes=0):
 
@@ -42,7 +44,7 @@ def convert_bucket(bucket_from_name,
             path_dir_for_saving = p.resolve()
 
             # if we already have next dir in destination bucket, this folder is already converted
-            if exist_next_dir(bucket_to, path_dir_for_saving, part_name):
+            if skip_existing and exist_next_dir(bucket_to, path_dir_for_saving, part_name):
                 print(f"  ⏭️ Skipping the part \t\t{filename}")
                 continue
 
@@ -116,19 +118,20 @@ def exist_next_dir(bucket_to, dir_path, part_name):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Converting parameters')
-    parser.add_argument('-bucket_from_name', type=str, default='waymo_open_dataset_motion_v_1_2_0')
-    parser.add_argument('-bucket_to_name', type=str, default='motion_prediction_data_v_0_1')
-    parser.add_argument('-dir_for_download', type=str, default='../data/waymo')
-    parser.add_argument('-dir_for_store', type=str, default='../data/waymo_converted')
-    parser.add_argument('-max_parts', type=int, default=0)
-    parser.add_argument('-max_scenes', type=int, default=0)
+    parser.add_argument('--bucket_from_name', type=str, default='waymo_open_dataset_motion_v_1_2_0')
+    parser.add_argument('--bucket_to_name', type=str, default='motion_prediction_data_v_0_1')
+    parser.add_argument('--dir_for_download', type=str, default='../data/waymo')
+    parser.add_argument('--dir_for_store', type=str, default='../data/waymo_converted')
+    parser.add_argument('--skip_existing', type=lambda x: bool(strtobool(x)), default=True)
+    parser.add_argument('--max_parts', type=int, default=0)
+    parser.add_argument('--max_scenes', type=int, default=0)
     params = parser.parse_args()
-
     convert_bucket(
         bucket_from_name=params.bucket_from_name,
         bucket_to_name=params.bucket_to_name,
         dir_for_download=params.dir_for_download,
         dir_for_store=params.dir_for_store,
+        skip_existing=params.skip_existing,
         max_parts=params.max_parts,
         max_scenes=params.max_scenes
     )
