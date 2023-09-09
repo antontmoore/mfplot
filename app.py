@@ -1,6 +1,7 @@
 from dash import Dash, html, dcc, Input, Output, ctx, State
 from figure_creation.argoverse import ArgoverseFigureCreator
 from figure_creation.waymo import WaymoFigureCreator
+from figure_creation.general_data_model import GeneralFigureCreator
 from figure_creation import DatasetPart
 import dash_bootstrap_components as dbc
 import os
@@ -8,7 +9,8 @@ from PIL import Image
 
 
 # fc = ArgoverseFigureCreator()
-fc = WaymoFigureCreator()
+# fc = WaymoFigureCreator()
+fc = GeneralFigureCreator()
 # fig = fc.generate_figure(scene_id='0a0ef009-9d44-4399-99e6-50004d345f34')
 fig = fc.get_current_scene()
 
