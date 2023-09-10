@@ -73,12 +73,11 @@ def scale_object(length, width, object_type=0):
     # waymo types
     # Unset=0, Vehicle=1, Pedestrian=2, Cyclist=3, Other=4, StopSign=5
     contour = {
-        0: vehicle_contour,
         1: vehicle_contour,
         2: ped_contour,
         3: moto_contour,
-        4: other_contour,
-        5: stop_contour
+        4: bus_contour,
+        5: other_contour,
     }[object_type]
 
     contour_scale_x = max(contour[0, :]) - min(contour[0, :])

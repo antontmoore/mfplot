@@ -1,12 +1,8 @@
 from dash_bootstrap_templates import load_figure_template
-from av2.datasets.motion_forecasting import scenario_serialization
-from av2.datasets.motion_forecasting.data_schema import ObjectType, TrackCategory
-from av2.map.map_api import ArgoverseStaticMap
-from .shared import vehicle_contour, ped_contour, moto_contour, bus_contour, other_contour
 from .shared import THEMECOLORS
 from .shared import DatasetPart
-from .shared import none_vector
-from .shared import SIGNIFICANT_SCALE_DELTA, MASK_VALUE
+from .shared import scale_object
+from .shared import SIGNIFICANT_SCALE_DELTA
 from .figure_creator import FigureCreatorBaseClass
 from pathlib import Path
 from plotly.graph_objects import Figure
@@ -17,39 +13,25 @@ import os
 load_figure_template(['darkly'])
 template = 'darkly'
 
-contour_by_type = {
-                    ObjectType.VEHICLE: vehicle_contour,
-                    ObjectType.PEDESTRIAN: ped_contour,
-                    ObjectType.MOTORCYCLIST: moto_contour,
-                    ObjectType.CYCLIST: moto_contour,
-                    ObjectType.RIDERLESS_BICYCLE: moto_contour,
-                    ObjectType.BUS: bus_contour,
-                    ObjectType.STATIC: other_contour,
-                    ObjectType.BACKGROUND: other_contour,
-                    ObjectType.CONSTRUCTION: other_contour,
-                    ObjectType.UNKNOWN: other_contour,
-                }
-
 color_by_category = {
-                TrackCategory.FOCAL_TRACK: THEMECOLORS["green"],
-                TrackCategory.SCORED_TRACK: THEMECOLORS["blue"],
-                TrackCategory.UNSCORED_TRACK: THEMECOLORS["white"],
-                TrackCategory.TRACK_FRAGMENT: THEMECOLORS["light-grey"]
+                1: THEMECOLORS["green"],
+                2: THEMECOLORS["blue"],
+                3: THEMECOLORS["white"],
+                4: THEMECOLORS["light-grey"]
             }
 
-visualize_trajectory_for_tracks = [TrackCategory.FOCAL_TRACK,
-                                   TrackCategory.SCORED_TRACK,
-                                   TrackCategory.UNSCORED_TRACK]
+visualize_trajectory_for_tracks = [1,  # sdc/focal_track
+                                   2,  # tracks_to_predict/scored_track
+                                   3]  # objects_of_interest/unscored_track
 
 track_category_text_by_category = \
     {
-        tc: ' '.join(str(tc).split('.')[1].lower().split('_'))
-        for tc in [TrackCategory.TRACK_FRAGMENT,
-                   TrackCategory.UNSCORED_TRACK,
-                   TrackCategory.SCORED_TRACK,
-                   TrackCategory.FOCAL_TRACK]
+        1: 'sdc/focal_track',
+        2: 'tracks_to_predict/scored_track',
+        3: 'objects_of_interest/unscored_track',
+        4: 'other fragment'
     }
-'motion_prediction_data_v_0_1'
+
 
 class GeneralFigureCreator(FigureCreatorBaseClass):
 
@@ -112,11 +94,9 @@ class GeneralFigureCreator(FigureCreatorBaseClass):
         }
 
         static_plot_data = self.make_static_data()
-        # frames = self.make_dynamic_data(static_data=static_plot_data)
-        frames = []
+        frames = self.make_dynamic_data(static_data=static_plot_data)
 
-        # fig_dict["data"] = frames[0]["data"]
-        fig_dict["data"] = static_plot_data
+        fig_dict["data"] = frames[0]["data"]
         fig_dict["frames"] = frames
         for frame_num in range(len(frames)):
             slider_step = {"args": [
@@ -169,7 +149,8 @@ class GeneralFigureCreator(FigureCreatorBaseClass):
 
         fig_dict["layout"]["yaxis"] = {"showgrid": False, "zeroline": False, "showticklabels": True,
                                        "scaleanchor": "x", "scaleratio": 1}
-        #TODO: don't forget
+
+        # TODO: don't forget
         # if self.scale_variant == 2:
         #     fig_dict["layout"]["xaxis"]["range"] = self.significant_scale_range_x
         #     fig_dict["layout"]["yaxis"]["range"] = self.significant_scale_range_y
@@ -180,7 +161,7 @@ class GeneralFigureCreator(FigureCreatorBaseClass):
 
     def make_static_data(self):
 
-        # generate dicts for drivable area traces
+        # generate dict for drivable area traces
         drivable_area_traces = {
                 "x": self.deserealized_scene.road_border[:, 0].tolist(),
                 "y": self.deserealized_scene.road_border[:, 1].tolist(),
@@ -194,9 +175,7 @@ class GeneralFigureCreator(FigureCreatorBaseClass):
                 "showlegend": False
             }
 
-        rb = self.deserealized_scene.road_border
-
-        # generate dicts for lanes traces
+        # generate dict for lanes traces
         lanes_traces = {
             "x": self.deserealized_scene.lanes_borderline[:, 0].tolist(),
             "y": self.deserealized_scene.lanes_borderline[:, 1].tolist(),
@@ -211,9 +190,6 @@ class GeneralFigureCreator(FigureCreatorBaseClass):
             "fill": 'none'
         }
 
-        # generate dicts for pedestrian crosses
-        # single dict for every crossing because of filling
-        # self.deserealized_scene.crosswalk
         ped_cross_traces = {
             "x": self.deserealized_scene.crosswalk[:, 0].tolist(),
             "y": self.deserealized_scene.crosswalk[:, 1].tolist(),
@@ -229,15 +205,164 @@ class GeneralFigureCreator(FigureCreatorBaseClass):
 
         return [drivable_area_traces, lanes_traces, ped_cross_traces]
 
+    def make_dynamic_data(self, static_data):
+
+        # calculating the max of timestamps
+        max_timestamp = self.deserealized_scene.tracks.features.shape[1] + \
+            self.deserealized_scene.tracks.future_features.shape[1] - 1
+
+        tracks = self.deserealized_scene.tracks
+        coords = np.concatenate((tracks.features[:, :, :2], tracks.future_features[:, :, :2]), axis=1)
+        headings = np.concatenate((tracks.features[:, :, 4], tracks.future_features[:, :, 4]), axis=1)
+        dimensions = np.concatenate((tracks.features[:, :, 5:], tracks.future_features[:, :, 5:]), axis=1)
+        valid = np.concatenate((tracks.valid, tracks.future_valid), axis=1)
+
+        track_colors = [
+            THEMECOLORS["magenta"] if (tracks.type_and_category[idx, 0] == 2 and
+                                       tracks.type_and_category[idx, 1] not in visualize_trajectory_for_tracks)
+            else color_by_category[tracks.type_and_category[idx, 1]]
+            for idx in range(tracks.features.shape[0])
+        ]
+
+        significant_tracks_ids = []
+        for idx in range(tracks.features.shape[0]):
+            if tracks.type_and_category[idx, 1] in visualize_trajectory_for_tracks:
+                significant_tracks_ids.append(idx)
+
+        # calculating scale for significant tracks only
+        sign_x_coords = coords[:, :, 0][valid > 0]
+        sign_y_coords = coords[:, :, 1][valid > 0]
+        sign_scale_min_x, sign_scale_max_x = min(sign_x_coords), max(sign_x_coords)
+        sign_scale_min_y, sign_scale_max_y = min(sign_y_coords), max(sign_y_coords)
+
+        x_range = sign_scale_max_x - sign_scale_min_x
+        y_range = sign_scale_max_y - sign_scale_min_y
+        if y_range > x_range:
+            x_center = (sign_scale_min_x + sign_scale_max_x) / 2
+            self.significant_scale_range_x = [x_center - y_range / 2 - SIGNIFICANT_SCALE_DELTA,
+                                              x_center + y_range / 2 + SIGNIFICANT_SCALE_DELTA]
+            self.significant_scale_range_y = [sign_scale_min_y - SIGNIFICANT_SCALE_DELTA,
+                                              sign_scale_max_y + SIGNIFICANT_SCALE_DELTA]
+        else:
+            y_center = (sign_scale_min_y + sign_scale_max_y) / 2
+            self.significant_scale_range_x = [sign_scale_min_x - SIGNIFICANT_SCALE_DELTA,
+                                              sign_scale_max_x + SIGNIFICANT_SCALE_DELTA]
+            self.significant_scale_range_y = [y_center - x_range / 2 - SIGNIFICANT_SCALE_DELTA,
+                                              y_center + x_range / 2 + SIGNIFICANT_SCALE_DELTA]
+
+        # frames generation
+        frames = []
+
+        for ts in range(max_timestamp + 1):
+
+            vehicles_data = []
+            others_data = []
+            trajectories = []
+            for track_idx in range(tracks.features.shape[0]):
+                track_color = track_colors[track_idx]
+                track_type, track_category = tuple(tracks.type_and_category[track_idx, :])
+
+                # current coordinate and trace calculation
+                track_current_coords = coords[track_idx, ts, :]
+                track_zero_to_current = coords[track_idx, :ts+1, :]
+                valid_zero_to_current = valid[track_idx, :ts+1]
+                track_zero_to_current_masked = track_zero_to_current[valid_zero_to_current > 0]
+                trace = track_zero_to_current_masked.reshape((-1, 2))
+
+                # flag - no points to plot in this track
+                empty_track = valid[track_idx, ts] < 0.5
+
+                # contour calculation
+                object_contour = scale_object(
+                    dimensions[track_idx, ts, 0],
+                    dimensions[track_idx, ts, 1],
+                    track_type
+                )
+                # rotate every object besides pedestrians
+                if track_type != 2:
+                    # rotation matrix
+                    heading = headings[track_idx, ts]
+                    rot_m = np.array([[np.cos(heading), -np.sin(heading)],
+                                      [np.sin(heading), np.cos(heading)]])
+                    object_contour = rot_m @ object_contour
+
+                if track_type == 1:  # vehicle
+                    if empty_track:
+                        xdata, ydata = [], []
+                    else:
+                        rotated_vehicle = np.add(object_contour, trace[-1, :, np.newaxis])
+                        xdata = rotated_vehicle[0, :].tolist()
+                        ydata = rotated_vehicle[1, :].tolist()
+
+                    vehicles_data.append(
+                        {
+                            "x": xdata,
+                            "y": ydata,
+                            "line": {
+                                "width": 1,
+                                "color": track_color
+                            },
+                            "hoverinfo": 'text',
+                            "mode": 'lines',
+                            "showlegend": self.show_legend,
+                            "fill": 'toself',
+                            "text": 'vehicle (' + track_category_text_by_category[track_category] + ")",
+                        }
+                    )
+
+                else:
+                    xdata = [] if empty_track else np.add(track_current_coords[0], object_contour[0, :]).tolist()
+                    ydata = [] if empty_track else np.add(track_current_coords[1], object_contour[1, :]).tolist()
+                    others_data.append(
+                        {"x": xdata,
+                         "y": ydata,
+                         "hoverinfo": 'text',
+                         "mode": 'lines',
+                         "line": {
+                             "width": 0.5,
+                             "color": track_color
+                         },
+                         "text": str(track_type)[11:].lower() + ' (' +
+                            track_category_text_by_category[track_category] + ")",
+                         "fill": 'toself',
+                         "showlegend": self.show_legend,
+                         "name": str(track_type).lower()[11:] + " " + str(track_idx),
+                         }
+                    )
+
+                if track_category in visualize_trajectory_for_tracks:
+                    trajectory = {
+                        "x": trace[:, 0],
+                        "y": trace[:, 1],
+                        "line":
+                            {"width": 1,
+                             "color": track_color,
+                             },
+                        "hoverinfo": 'none',
+                        "mode": 'lines',
+                        "showlegend": False,
+                        "fill": 'none',
+                        "visible": self.show_trajectory
+                    }
+                    trajectories.append(trajectory)
+
+            frame = {"data": [*static_data, *vehicles_data, *others_data, *trajectories],
+                     "name": str(ts)}
+
+            first_traj_idx = len(static_data) + len(vehicles_data) + len(others_data)
+            self.trajectories_trace_indices = [first_traj_idx, first_traj_idx+len(trajectories)]
+            frames.append(frame)
+
+        return frames
 
     def read_scene_data(self, scene_id):
         scene_filename = self.scene_files[scene_id]
         p = self.folders_by_datasetpart[self.dataset_part][0] / scene_filename
         path2read = str(p.resolve())
 
-        # opened_file = open(path2read, 'rb')
         with open(path2read, 'rb') as opened_file:
             self.deserealized_scene = pickle.load(opened_file)
+
 
 if __name__ == "__main__":
     fc = GeneralFigureCreator()
