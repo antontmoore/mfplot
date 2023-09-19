@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-from data_model.scene import Scene, Tracks
+from data_model.scene import Scene, Tracks, RoadMarkup
 import warnings
 import pickle
 
@@ -11,7 +11,7 @@ FUTURE = slice(11, 91)
 
 class WaymoConvertor:
     def __init__(self,
-                 simplify_graph=True,
+                 simplify_graph=False,
                  only_for_calc=False,
                  add_z_coordinate=False,
                  plot_result=False,
@@ -190,11 +190,20 @@ class WaymoConvertor:
 
     def convert(self):
 
-        lane_center, lane_border, border, crosswalk, speedbump, _, _ = self.get_road_and_lanes()
+        (
+            lane_center,
+            bike_lane_center,
+            road_markup,
+            border,
+            stopsign,
+            crosswalk,
+            speedbump
+        ) = self.get_road_and_lanes()
         scene = Scene()
         scene.lanes_centerline = lane_center
-        scene.lanes_borderline = lane_border
+        # scene.lanes_borderline = lane_border
         scene.road_border = border
+        scene.road_markup = road_markup
         scene.crosswalk = crosswalk
         scene.tracks = self.get_tracks()
         scene.scene_id = str(self.parsed_tf_data['scenario/id'].numpy()[0])[2:-1]
@@ -234,10 +243,12 @@ class WaymoConvertor:
 
         coords_slice = slice(0, 3) if self.add_z_coordinate else slice(0, 2)
         coords_slice_tuple = (0, 3) if self.add_z_coordinate else (0, 2)
+        start_zeros = np.zeros(coords_slice_tuple)
 
-        border, lane_center = np.zeros(coords_slice_tuple), np.zeros(coords_slice_tuple)
-        white_markup_solid = np.zeros(coords_slice_tuple)
-        yellow_markup_broken, yellow_markup_solid = np.zeros(coords_slice_tuple), np.zeros(coords_slice_tuple)
+        border, lane_center = start_zeros, start_zeros
+        white_broken_single, white_solid_single, white_solid_double = start_zeros, start_zeros, start_zeros
+        yellow_solid_single, yellow_solid_double = start_zeros, start_zeros
+        yellow_broken_single, yellow_broken_double, yellow_passing_double = start_zeros, start_zeros, start_zeros
 
         crosswalk, speedbump, stopsign = np.empty_like(border), np.empty_like(border), np.empty_like(border)
         bike_lane_center, white_markup_broken = np.empty_like(border), np.empty_like(border)
@@ -259,22 +270,36 @@ class WaymoConvertor:
 
             elif rtype == 6:
                 # RoadLine-BrokenSingleWhite = 6
-                white_markup_broken = roadgraph_xyz[np.where(roadgraph_type == rtype)[0], coords_slice]
+                white_broken_single = roadgraph_xyz[np.where(roadgraph_type == rtype)[0], coords_slice]
 
-            elif rtype in [7, 8]:
-                # RoadLine-SolidSingleWhite = 7, RoadLine-SolidDoubleWhite = 8
-                white_markup_solid = np.vstack((white_markup_solid,
-                                                roadgraph_xyz[np.where(roadgraph_type == rtype)[0], coords_slice]))
+            elif rtype == 7:
+                # RoadLine-SolidSingleWhite = 7
+                white_solid_single = roadgraph_xyz[np.where(roadgraph_type == rtype)[0], coords_slice]
 
-            elif rtype in [9, 10]:
-                # RoadLine-BrokenSingleYellow = 9, RoadLine-BrokenDoubleYellow = 10
-                yellow_markup_broken = np.vstack((yellow_markup_broken,
-                                                  roadgraph_xyz[np.where(roadgraph_type == rtype)[0], coords_slice]))
+            elif rtype == 8:
+                # RoadLine - SolidDoubleWhite = 8
+                white_solid_double = roadgraph_xyz[np.where(roadgraph_type == rtype)[0], coords_slice]
 
-            elif rtype in [11, 12, 13]:
-                # Roadline-SolidSingleYellow = 11, Roadline-SolidDoubleYellow=12, RoadLine-PassingDoubleYellow = 13
-                yellow_markup_solid = np.vstack((yellow_markup_solid,
+            elif rtype == 9:
+                # RoadLine-BrokenSingleYellow = 9
+                yellow_broken_single = roadgraph_xyz[np.where(roadgraph_type == rtype)[0], coords_slice]
+
+            elif rtype == 10:
+                # RoadLine-BrokenDoubleYellow = 10
+                yellow_broken_double = roadgraph_xyz[np.where(roadgraph_type == rtype)[0], coords_slice]
+
+            elif rtype == 11:
+                # Roadline-SolidSingleYellow = 11,  RoadLine-PassingDoubleYellow = 13
+                yellow_solid_single = np.vstack((yellow_solid_single,
                                                  roadgraph_xyz[np.where(roadgraph_type == rtype)[0], coords_slice]))
+
+            elif rtype == 12:
+                # Roadline - SolidDoubleYellow = 12
+                yellow_solid_double = roadgraph_xyz[np.where(roadgraph_type == rtype)[0], coords_slice]
+
+            elif rtype == 13:
+                # RoadLine - PassingDoubleYellow = 13
+                yellow_passing_double = roadgraph_xyz[np.where(roadgraph_type == rtype)[0], coords_slice]
 
             elif rtype in [15, 16]:
                 # RoadEdgeBoundary = 15, RoadEdgeMedian = 16
@@ -295,11 +320,26 @@ class WaymoConvertor:
             else:
                 warnings.warn(f'Unknown type of road graph! road_type = {rtype}')
 
-        lane_border = np.vstack((
-            white_markup_solid,
-            white_markup_broken
-        ))
-        return lane_center, lane_border, border, crosswalk, speedbump, bike_lane_center, stopsign
+        road_markup = RoadMarkup()
+        road_markup.white_broken_single = white_broken_single
+        road_markup.white_solid_single = white_solid_single
+        road_markup.white_solid_double = white_solid_double
+        road_markup.yellow_broken_single = yellow_broken_single
+        road_markup.yellow_broken_double = yellow_broken_double
+        road_markup.yellow_solid_single = yellow_solid_single
+        road_markup.yellow_solid_double = yellow_solid_double
+        road_markup.yellow_passing_double = yellow_passing_double
+
+
+        return (
+            lane_center,
+            bike_lane_center,
+            road_markup,
+            border,
+            stopsign,
+            crosswalk,
+            speedbump
+        )
 
     def get_tracks(self):
         data = self.parsed_tf_data

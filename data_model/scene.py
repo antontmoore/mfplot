@@ -20,10 +20,21 @@ class Tracks:
     future_valid: npt.NDArray
 
 
+class RoadMarkup:
+    white_broken_single: Union[npt.NDArray, None]
+    white_solid_single: Union[npt.NDArray, None]
+    white_solid_double: Union[npt.NDArray, None]
+    yellow_broken_single: Union[npt.NDArray, None]
+    yellow_broken_double: Union[npt.NDArray, None]
+    yellow_solid_single: Union[npt.NDArray, None]
+    yellow_solid_double: Union[npt.NDArray, None]
+    yellow_passing_double: Union[npt.NDArray, None]
+
+
 class Scene:
     scene_id: str
     lanes_centerline: Union[npt.NDArray, None]
-    lanes_borderline: Union[npt.NDArray, None]
+    road_markup: RoadMarkup
     road_border: npt.NDArray
     crosswalk: npt.NDArray
     tracks: Tracks

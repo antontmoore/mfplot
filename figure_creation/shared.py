@@ -16,6 +16,7 @@ THEMECOLORS = {
     'dark-blue': '#0065bb',
     'light-blue': '#569cd6',
     'magenta': '#69217a',
+    'dark-magenta': '#52295c',
     'light-magenta': '#da71d6',
     'green': '#24c93e',
     'dark-green': '#257057',
@@ -23,6 +24,8 @@ THEMECOLORS = {
     'black': '#101010',
     'yellow': '#8b6023',
     'red': '#86372f',
+    'dark-orange': '#6D4912', #'#925100',
+    'dark-wave': '#112121',
 }
 
 MASK_VALUE = -100500

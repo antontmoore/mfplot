@@ -3,6 +3,7 @@ from .shared import THEMECOLORS
 from .shared import DatasetPart
 from .shared import scale_object
 from .shared import SIGNIFICANT_SCALE_DELTA
+from .shared import none_vector
 from .figure_creator import FigureCreatorBaseClass
 from pathlib import Path
 from plotly.graph_objects import Figure
@@ -161,38 +162,60 @@ class GeneralFigureCreator(FigureCreatorBaseClass):
 
     def make_static_data(self):
 
-        # generate dict for drivable area traces
-        drivable_area_traces = {
-                "x": self.deserealized_scene.road_border[:, 0].tolist(),
-                "y": self.deserealized_scene.road_border[:, 1].tolist(),
+        def make_one_trace(trace_array, color, dash='solid'):
+            return {
+                "x": trace_array[:, 0].tolist(),
+                "y": trace_array[:, 1].tolist(),
                 "line": {
-                    "width": 1,
-                    "color": THEMECOLORS['dark-green']
+                    "width": 0.5,
+                    "color": THEMECOLORS[color],
+                    "dash": dash,
                 },
                 "hoverinfo": 'none',
                 "mode": 'lines',
+                "showlegend": False,
                 "fill": 'none',
-                "showlegend": False
             }
 
-        # generate dict for lanes traces
-        lanes_traces = {
-            "x": self.deserealized_scene.lanes_borderline[:, 0].tolist(),
-            "y": self.deserealized_scene.lanes_borderline[:, 1].tolist(),
-            "line": {
-                "width": 0.5,
-                "color": THEMECOLORS['light-grey']
-            },
-            "hoverinfo": 'none',
-            "mode": 'lines',
-            # "marker": {'color': 'LightSkyBlue', 'size': 2},
-            "showlegend": False,
-            "fill": 'none'
-        }
+        # drivable area traces
+        road_border = self.split_trace(self.deserealized_scene.road_border)
+        drivable_area_traces = make_one_trace(road_border, 'dark-green')
 
+        # lanes centers
+        lanes_centerline = self.split_trace(self.deserealized_scene.lanes_centerline)
+        lanes_traces = make_one_trace(lanes_centerline, 'dark-magenta')
+
+        # white markup
+        white_broken_single = self.split_trace(self.deserealized_scene.road_markup.white_broken_single)
+        white_broken_single_traces = make_one_trace(white_broken_single, 'light-grey', 'dash')
+
+        white_solid_single = self.split_trace(self.deserealized_scene.road_markup.white_solid_single)
+        white_solid_single_traces = make_one_trace(white_solid_single, 'light-grey')
+
+        white_solid_double = self.split_trace(self.deserealized_scene.road_markup.white_solid_double)
+        white_solid_double_traces = make_one_trace(white_solid_double, 'light-grey')
+
+        # yellow markup
+        yellow_broken_single = self.split_trace(self.deserealized_scene.road_markup.yellow_broken_single)
+        yellow_broken_single_traces = make_one_trace(yellow_broken_single, 'dark-orange', 'dash')
+
+        yellow_broken_double = self.split_trace(self.deserealized_scene.road_markup.yellow_broken_double)
+        yellow_broken_double_traces = make_one_trace(yellow_broken_double, 'dark-orange', 'dash')
+
+        yellow_solid_single = self.split_trace(self.deserealized_scene.road_markup.yellow_solid_single)
+        yellow_solid_single_traces = make_one_trace(yellow_solid_single, 'dark-orange')
+
+        yellow_solid_double = self.split_trace(self.deserealized_scene.road_markup.yellow_solid_double)
+        yellow_solid_double_traces = make_one_trace(yellow_solid_double, 'dark-orange')
+
+        yellow_passing_double = self.split_trace(self.deserealized_scene.road_markup.yellow_passing_double)
+        yellow_passing_double_traces = make_one_trace(yellow_passing_double, 'dark-orange', 'dash')
+
+        # crosswalks
+        crosswalk = self.split_trace(self.deserealized_scene.crosswalk)
         ped_cross_traces = {
-            "x": self.deserealized_scene.crosswalk[:, 0].tolist(),
-            "y": self.deserealized_scene.crosswalk[:, 1].tolist(),
+            "x": crosswalk[:, 0].tolist(),
+            "y": crosswalk[:, 1].tolist(),
             "line": {
                 "width": 0,
                 "color": THEMECOLORS['medium-grey']
@@ -203,7 +226,11 @@ class GeneralFigureCreator(FigureCreatorBaseClass):
             "fill": 'toself'
         }
 
-        return [drivable_area_traces, lanes_traces, ped_cross_traces]
+        return [drivable_area_traces, lanes_traces,
+                white_broken_single_traces, white_solid_single_traces, white_solid_double_traces,
+                yellow_broken_single_traces, yellow_broken_double_traces,
+                yellow_solid_single_traces, yellow_solid_double_traces, yellow_passing_double_traces,
+                ped_cross_traces]
 
     def make_dynamic_data(self, static_data):
 
@@ -362,6 +389,49 @@ class GeneralFigureCreator(FigureCreatorBaseClass):
 
         with open(path2read, 'rb') as opened_file:
             self.deserealized_scene = pickle.load(opened_file)
+
+    @staticmethod
+    def split_trace(trace):
+        split_indices = []
+        for j in range(1, trace.shape[0]-1):
+            if abs(trace[j, 0] - trace[j + 1, 0]) > 2. or \
+               abs(trace[j, 1] - trace[j + 1, 1]) > 2.:
+                split_indices.append(j)
+
+        result_trace = none_vector
+        ind_before = 0
+        for ind in split_indices:
+            result_trace = np.vstack((result_trace, trace[ind_before:ind + 1, :], none_vector))
+            ind_before = ind + 1
+
+        result_trace = np.vstack((result_trace, trace[ind_before:, :]))
+
+        return result_trace
+
+    @staticmethod
+    def separate_obstacles(xyz):
+        if xyz.shape[0] == 0:
+            return xyz
+        none_vector = np.array([None, None, None]) if xyz.shape[1] == 3 else np.array([None, None])
+
+        ob_xyz = none_vector
+        if xyz.shape[0] % 4 != 0:
+            print("Couldn't separate crosswalks / speed bumps by four points")
+        else:
+            obstacles = np.split(xyz, xyz.shape[0] // 4)
+            ob_xyz = obstacles[0]
+            for obidx, ob in enumerate(obstacles):
+                ob_xyz = np.vstack((
+                    ob_xyz,
+                    ob_xyz[-4, np.newaxis, :],
+                    none_vector
+                ))
+                if obidx < len(obstacles) - 1:
+                    ob_xyz = np.vstack((
+                        ob_xyz,
+                        obstacles[obidx + 1],
+                    ))
+        return ob_xyz
 
 
 if __name__ == "__main__":
