@@ -31,10 +31,25 @@ class RoadMarkup:
     yellow_passing_double: Union[npt.NDArray, None]
 
 
+class TrafficLight:
+    # coordinates: x, y
+    # shape: (num_of_traffic_lights, 2)
+    coordinates: Union[npt.NDArray, None]
+
+    # directions: cos(theta), sin(theta)
+    # shape: (num_of_traffic_lights, 2)
+    directions: Union[npt.NDArray, None]
+
+    # shape: (timesteps, num_of_traffic_lights)
+    states: Union[npt.NDArray, None]
+    future_states: Union[npt.NDArray, None]
+
+
 class Scene:
     scene_id: str
     lanes_centerline: Union[npt.NDArray, None]
     road_markup: RoadMarkup
     road_border: npt.NDArray
     crosswalk: npt.NDArray
+    traffic_lights: Union[TrafficLight, None]
     tracks: Tracks

@@ -1,8 +1,8 @@
 import numpy as np
 import tensorflow as tf
-from data_model.scene import Scene, Tracks, RoadMarkup
+from figure_creation.shared import normalized
+from data_model.scene import Scene, Tracks, RoadMarkup, TrafficLight
 import warnings
-import pickle
 
 NUM_MAP_SAMPLES = 30000
 PAST_AND_CURRENT = slice(0, 11)
@@ -144,6 +144,8 @@ class WaymoConvertor:
                 tf.io.FixedLenFeature([1, 16], tf.float32, default_value=None),
             'traffic_light_state/current/z':
                 tf.io.FixedLenFeature([1, 16], tf.float32, default_value=None),
+            'traffic_light_state/current/id':
+                tf.io.FixedLenFeature([1, 16], tf.int64, default_value=None),
             'traffic_light_state/past/state':
                 tf.io.FixedLenFeature([10, 16], tf.int64, default_value=None),
             'traffic_light_state/past/valid':
@@ -154,12 +156,16 @@ class WaymoConvertor:
                 tf.io.FixedLenFeature([10, 16], tf.float32, default_value=None),
             'traffic_light_state/past/z':
                 tf.io.FixedLenFeature([10, 16], tf.float32, default_value=None),
+            'traffic_light_state/past/id':
+                tf.io.FixedLenFeature([10, 16], tf.int64, default_value=None),
             'traffic_light_state/future/state':
                 tf.io.FixedLenFeature([80, 16], tf.int64, default_value=None),
             'traffic_light_state/future/x':
                 tf.io.FixedLenFeature([80, 16], tf.float32, default_value=None),
             'traffic_light_state/future/y':
                 tf.io.FixedLenFeature([80, 16], tf.float32, default_value=None),
+            'traffic_light_state/future/id':
+                tf.io.FixedLenFeature([80, 16], tf.int64, default_value=None),
         }
 
         features_description = {}
@@ -187,9 +193,7 @@ class WaymoConvertor:
             #     path2save = str(path2save.absolute())
             #     pickle.dump(scene_converted, open(path2save, 'wb'))
 
-
     def convert(self):
-
         (
             lane_center,
             bike_lane_center,
@@ -206,6 +210,7 @@ class WaymoConvertor:
         scene.road_markup = road_markup
         scene.crosswalk = crosswalk
         scene.tracks = self.get_tracks()
+        scene.traffic_lights = self.get_traffic_lights()
         scene.scene_id = str(self.parsed_tf_data['scenario/id'].numpy()[0])[2:-1]
 
         # if self.plot_result:
@@ -468,6 +473,45 @@ class WaymoConvertor:
         ), axis=1)
 
         return tracks_to_scene
+
+    def get_traffic_lights(self):
+        current_id = self.parsed_tf_data['traffic_light_state/current/id'].numpy()
+        lane_ids = current_id[current_id > 0]
+
+        road_id = self.parsed_tf_data['roadgraph_samples/id'].numpy()
+        road_xyz = self.parsed_tf_data['roadgraph_samples/xyz'].numpy()
+        road_dir = self.parsed_tf_data['roadgraph_samples/dir'].numpy()
+
+        coordinates = np.zeros((0, 2))
+        directions = np.zeros((0, 2))
+        for lane_id in lane_ids:
+            lane_start_index = np.where(road_id == lane_id)[0][0]
+            xyzs = road_xyz[lane_start_index, :]
+            dirs = road_dir[lane_start_index, :]
+            dirs_normalized = normalized(dirs[:2])
+            coordinates = np.vstack((coordinates, xyzs[:2]))
+            directions = np.vstack((directions, dirs_normalized))
+
+        if coordinates.any():
+
+            past_states = self.parsed_tf_data['traffic_light_state/past/state'].numpy()
+            current_states = self.parsed_tf_data['traffic_light_state/current/state'].numpy()
+            future_states = self.parsed_tf_data['traffic_light_state/future/state'].numpy()
+            tl_indices = np.where(current_id > 0)[1]
+
+            traffic_lights = TrafficLight()
+            traffic_lights.coordinates = coordinates
+            traffic_lights.directions = directions
+            traffic_lights.states = np.vstack((
+                past_states[:, tl_indices],
+                current_states[:, tl_indices]
+            ))
+            traffic_lights.future_states = future_states[:, tl_indices]
+        else:
+            traffic_lights = None
+
+        return traffic_lights
+
 
     def separate_obstacles(self, xyz):
         if xyz.shape[0] == 0:

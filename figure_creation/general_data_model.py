@@ -4,6 +4,7 @@ from .shared import DatasetPart
 from .shared import scale_object
 from .shared import SIGNIFICANT_SCALE_DELTA
 from .shared import none_vector
+from .shared import tl_contour
 from .figure_creator import FigureCreatorBaseClass
 from pathlib import Path
 from plotly.graph_objects import Figure
@@ -32,6 +33,19 @@ track_category_text_by_category = \
         3: 'objects_of_interest/unscored_track',
         4: 'other fragment'
     }
+
+tl_color_by_state = {
+    -1: THEMECOLORS['light-grey'],
+    0: THEMECOLORS['light-grey'],
+    1: THEMECOLORS['red'],
+    2: THEMECOLORS['yellow'],
+    3: THEMECOLORS['green'],
+    4: THEMECOLORS['red'],
+    5: THEMECOLORS['yellow'],
+    6: THEMECOLORS['green'],
+    7: THEMECOLORS['red'],
+    8: THEMECOLORS['yellow'],
+}
 
 
 class GeneralFigureCreator(FigureCreatorBaseClass):
@@ -244,6 +258,10 @@ class GeneralFigureCreator(FigureCreatorBaseClass):
         dimensions = np.concatenate((tracks.features[:, :, 5:], tracks.future_features[:, :, 5:]), axis=1)
         valid = np.concatenate((tracks.valid, tracks.future_valid), axis=1)
 
+        if self.deserealized_scene.traffic_lights:
+            tl_states = np.vstack((self.deserealized_scene.traffic_lights.states,
+                                   self.deserealized_scene.traffic_lights.future_states))
+
         track_colors = [
             THEMECOLORS["magenta"] if (tracks.type_and_category[idx, 0] == 2 and
                                        tracks.type_and_category[idx, 1] not in visualize_trajectory_for_tracks)
@@ -373,10 +391,32 @@ class GeneralFigureCreator(FigureCreatorBaseClass):
                     }
                     trajectories.append(trajectory)
 
-            frame = {"data": [*static_data, *vehicles_data, *others_data, *trajectories],
+            tl_data = []
+            if self.deserealized_scene.traffic_lights:
+                traffic_lights = self.deserealized_scene.traffic_lights
+                for tl_index in range(traffic_lights.coordinates.shape[0]):
+                    cs = traffic_lights.directions[tl_index, :]
+                    rot_matrix = np.array([[cs[0], -cs[1]], [cs[1], cs[0]]])
+                    contour = rot_matrix @ tl_contour + traffic_lights.coordinates[tl_index:tl_index+1, :].T
+                    traffic_light = {
+                        "x": contour[0, :],
+                        "y": contour[1, :],
+                        "line": {
+                            "width": 1,
+                            "color": tl_color_by_state[tl_states[ts, tl_index]]
+                        },
+                        "hoverinfo": 'none',
+                        "mode": 'lines',
+                        "showlegend": self.show_legend,
+                        "fill": 'toself',
+                    }
+                    tl_data.append(traffic_light)
+
+
+            frame = {"data": [*static_data, *vehicles_data, *others_data, *tl_data, *trajectories],
                      "name": str(ts)}
 
-            first_traj_idx = len(static_data) + len(vehicles_data) + len(others_data)
+            first_traj_idx = len(static_data) + len(vehicles_data) + len(others_data) + len(tl_data)
             self.trajectories_trace_indices = [first_traj_idx, first_traj_idx+len(trajectories)]
             frames.append(frame)
 

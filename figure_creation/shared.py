@@ -7,6 +7,7 @@ class DatasetPart(Enum):
     VAL = 'val'
     TEST = 'test'
 
+
 THEMECOLORS = {
     'background': '#0e0e30',
     'dark-grey': '#353535',
@@ -24,14 +25,13 @@ THEMECOLORS = {
     'black': '#101010',
     'yellow': '#8b6023',
     'red': '#86372f',
-    'dark-orange': '#6D4912', #'#925100',
+    'dark-orange': '#6D4912',
     'dark-wave': '#112121',
 }
 
 MASK_VALUE = -100500
 vehicle_contour = np.array([[-2.0, 1.7, 2.0,  2.0,  1.7, -2.0, -2.0],
                             [0.8,  0.8, 0.5, -0.5, -0.8, -0.8,  0.8]])
-
 
 
 bus_contour = np.array([[-6.0, 6.0,  6.0, -6.0, -6.0],
@@ -54,6 +54,9 @@ other_contour = np.multiply(0.2, other_contour)
 
 stop_contour = np.array([[-3.0, -1.0, 1.0, 3.0,  3.0,  1.0, -1.0, -3.0, -3.0],
                          [ 1.0,  3.0, 3.0, 1.0, -1.0, -3.0, -3.0, -1.0,  1.0]])
+
+tl_contour = np.array([[0.5, 0.0, -0.5, -0.86, -1.0, -0.86,  -0.5,  0.0,  0.5, 0.5],
+                       [1.0, 1.0, 0.86,  0.5,   0.0, -0.5,  -0.86, -1.0, -1.0, 1.0]])
 
 
 class WaymoTrackCategory(Enum):
@@ -93,6 +96,12 @@ def scale_object(length, width, object_type=0):
 
 none_vector = np.array([None, None], ndmin=2)
 SIGNIFICANT_SCALE_DELTA = 20.
+
+
+def normalized(a, axis=-1, order=2):
+    l2 = np.atleast_1d(np.linalg.norm(a, order, axis))
+    l2[l2 == 0] = 1
+    return a / np.expand_dims(l2, axis)
 
 ### NOT USED ###
 # scale_coefficient = 0.08
