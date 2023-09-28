@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from figure_creation.shared import normalized
-from data_model.scene import Scene, Tracks, RoadMarkup, TrafficLight
+from data_model.scene import Scene, Tracks, RoadMarkup, TrafficLight, Lanes
 import warnings
 
 NUM_MAP_SAMPLES = 30000
@@ -195,7 +195,7 @@ class WaymoConvertor:
 
     def convert(self):
         (
-            lane_center,
+            lanes,
             bike_lane_center,
             road_markup,
             border,
@@ -203,9 +203,9 @@ class WaymoConvertor:
             crosswalk,
             speedbump
         ) = self.get_road_and_lanes()
+
         scene = Scene()
-        scene.lanes_centerline = lane_center
-        # scene.lanes_borderline = lane_border
+        scene.lanes = lanes
         scene.road_border = border
         scene.road_markup = road_markup
         scene.crosswalk = crosswalk
@@ -231,7 +231,7 @@ class WaymoConvertor:
         roadgraph_xyz = data['roadgraph_samples/xyz'].numpy()
         roadgraph_dir = data['roadgraph_samples/dir'].numpy()
         roadgraph_type = data['roadgraph_samples/type'].numpy()
-        # roadgraph_id = data['roadgraph_samples/id'].numpy()
+        roadgraph_id = data['roadgraph_samples/id'].numpy()
 
         # remove waste -1
         indices = np.where(roadgraph_type > 0)[0]
@@ -250,7 +250,7 @@ class WaymoConvertor:
         coords_slice_tuple = (0, 3) if self.add_z_coordinate else (0, 2)
         start_zeros = np.zeros(coords_slice_tuple)
 
-        border, lane_center = start_zeros, start_zeros
+        border, lane_center, lane_id = start_zeros, start_zeros, np.zeros((0, 1))
         white_broken_single, white_solid_single, white_solid_double = start_zeros, start_zeros, start_zeros
         yellow_solid_single, yellow_solid_double = start_zeros, start_zeros
         yellow_broken_single, yellow_broken_double, yellow_passing_double = start_zeros, start_zeros, start_zeros
@@ -268,6 +268,8 @@ class WaymoConvertor:
                 # LaneCenter-Freeway = 1, LaneCenter-SurfaceStreet = 2
                 lane_center = np.vstack((lane_center,
                                          roadgraph_xyz[np.where(roadgraph_type == rtype)[0], coords_slice]))
+                lane_id = np.vstack((lane_id,
+                                     roadgraph_id[np.where(roadgraph_type == rtype)[0], :]))
 
             elif rtype == 3:
                 # LaneCenter-BikeLane = 3,
@@ -335,9 +337,12 @@ class WaymoConvertor:
         road_markup.yellow_solid_double = yellow_solid_double
         road_markup.yellow_passing_double = yellow_passing_double
 
+        lanes = Lanes()
+        lanes.ids = lane_id
+        lanes.centerlines = lane_center
 
         return (
-            lane_center,
+            lanes,
             bike_lane_center,
             road_markup,
             border,

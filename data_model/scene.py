@@ -45,9 +45,16 @@ class TrafficLight:
     future_states: Union[npt.NDArray, None]
 
 
+class Lanes:
+    # shape: (num_of_lanes, coordinates)
+    centerlines: Union[npt.NDArray, None]
+
+    # shape: (num_of_lanes)
+    ids: Union[npt.NDArray, None]
+
 class Scene:
     scene_id: str
-    lanes_centerline: Union[npt.NDArray, None]
+    lanes: Union[Lanes, None]
     road_markup: RoadMarkup
     road_border: npt.NDArray
     crosswalk: npt.NDArray
