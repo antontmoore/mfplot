@@ -7,16 +7,21 @@ from data_model.scene import Lanes
 dir_path = '/Users/antontmur/projects/mfplot/data/waymo_converted/training/part00000'
 p = Path(dir_path)
 
-RADIUS_OF_CLOSE = 50
+MIN_RADIUS_OF_SCENE = 50
 NEW_LANE_DIST = 2.
 CONNECTION_RADIUS = 1.5
 CONNECTION_DIR = 0.2
+MAX_DISTANCE_ALONG_GRAPH = 100.
 X, Y = 0, 1
 
 
 def filter_lane_points(lanes, track_center):
+    track_center = np.mean(full_track, axis=0)
+    min_x, max_x = np.min(full_track[:, 0]), np.max(full_track[:, 0])
+    min_y, max_y = np.min(full_track[:, 1]), np.max(full_track[:, 1])
+    scene_radius = max(max_x - min_x, max_y - min_y, MIN_RADIUS_OF_SCENE)
     lanes_filtered = Lanes()
-    idxs_filtered = np.any(np.square(lanes.centerlines[:, None] - track_center).sum(axis=2) <= RADIUS_OF_CLOSE ** 2, axis=1)
+    idxs_filtered = np.any(np.square(lanes.centerlines[:, None] - track_center).sum(axis=2) <= scene_radius ** 2, axis=1)
     lanes_filtered.centerlines = lanes.centerlines[idxs_filtered]
     lanes_filtered.ids = lanes.ids[idxs_filtered]
     return lanes_filtered
@@ -63,7 +68,21 @@ def create_lane_graph(lanes):
                 # conn_dict[j].add(i)
                 conn_dict[i].add(j)
 
-    return lanes_list, conn_dict
+    # calculate the lengths of lanes
+    lanes_len = []
+    for lane in lanes_list:
+
+        lane_points_num = lane.shape[0]
+        lane_length = \
+            np.sum(
+                np.linalg.norm(
+                    lane[1:lane_points_num, :] - lane[:lane_points_num-1, :], axis=1
+                )
+            )
+
+        lanes_len.append(lane_length)
+
+    return lanes_list, lanes_len, conn_dict
 
 
 def find_closest_lane(lanes_list, past_traj):
@@ -96,18 +115,18 @@ def find_closest_lane(lanes_list, past_traj):
     return closest_lane_index
 
 
-def find_connected_lanes(conn_dict, closest_lane_idx):
+def find_connected_lanes(lanes_list, lanes_len, conn_dict, closest_lane_idx):
 
     connected_lanes = [closest_lane_idx]
-    to_visit = [closest_lane_idx]
+    to_visit = [(closest_lane_idx, 0)]
     visited = set()
     while len(to_visit) > 0:
-        lane_idx = to_visit.pop()
+        lane_idx, current_distance = to_visit.pop()
 
-        for neighbour in conn_dict[lane_idx]:
-            if neighbour not in visited:
-                connected_lanes.append(neighbour)
-                to_visit.append(neighbour)
+        for neighbour_idx in conn_dict[lane_idx]:
+            if neighbour_idx not in visited and current_distance < MAX_DISTANCE_ALONG_GRAPH:
+                connected_lanes.append(neighbour_idx)
+                to_visit.append((neighbour_idx, current_distance + lanes_len[neighbour_idx]))
         visited.add(lane_idx)
 
     return connected_lanes
@@ -135,23 +154,25 @@ for filepath in p.iterdir():
                 tracks.future_features[t_index, future_valid_indicies, :2],
             ))
             print(f"filepath = {filepath}, t_index = {t_index}")
-            track_center = np.mean(full_track, axis=0)
-            lanes_filtered = filter_lane_points(lanes, track_center)
-            lanes_list, conn_dict = create_lane_graph(lanes_filtered)
+
+            lanes_filtered = filter_lane_points(lanes, full_track)
+            lanes_list, lanes_len, conn_dict = create_lane_graph(lanes_filtered)
             closest_lane_idx = find_closest_lane(lanes_list=lanes_list,
                                                  past_traj=tracks.features[t_index, valid_indicies, :2])
-            connected_lanes = find_connected_lanes(conn_dict, closest_lane_idx)
+            connected_lanes = find_connected_lanes(lanes_list, lanes_len, conn_dict, closest_lane_idx)
 
             colors = 'bgrcm'
             c_ind = 0
             for lane_idx, lane in enumerate(lanes_list):
                 if lane_idx in connected_lanes:
                     plt.plot(lane[:, 0], lane[:, 1], 'k')
-                else:
-                    color = colors[c_ind]
-                    c_ind = (c_ind + 1) % 5
-                    plt.plot(lane[:, 0], lane[:, 1], color,  linewidth=0.5)
-                    # plt.plot(lane[-1, 0], lane[-1, 1], color+'o', linewidth=0.5)
+                # else:
+                color = colors[c_ind]
+                c_ind = (c_ind + 1) % 5
+                plt.plot(lane[:, 0], lane[:, 1], color,  linewidth=0.5)
+                text_coord = np.mean(lane, axis=0)
+                # plt.text(text_coord[0], text_coord[1], str(lane_idx), fontsize=6, color=color)
+                # plt.plot(lane[-1, 0], lane[-1, 1], color+'o', linewidth=0.5)
             plt.plot(full_track[:, 0], full_track[:, 1], 'b:', linewidth=1.5)
             plt.plot(full_track[10, 0], full_track[10, 1], 'go')
             plt.plot(full_track[-1, 0], full_track[-1, 1], 'ro')
