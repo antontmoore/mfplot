@@ -46,10 +46,10 @@ class TrafficLight:
 
 
 class Lanes:
-    # shape: (num_of_lanes, coordinates)
+    # shape: (total_number_of_points, 2)
     centerlines: Union[npt.NDArray, None]
 
-    # shape: (num_of_lanes)
+    # shape: (total_number_of_points,)
     ids: Union[npt.NDArray, None]
 
 class Scene:

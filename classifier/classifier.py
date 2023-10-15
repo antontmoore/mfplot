@@ -3,16 +3,23 @@ import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 from data_model.scene import Lanes
+from scipy.spatial import KDTree
 
 dir_path = '/Users/antontmur/projects/mfplot/data/waymo_converted/training/part00000'
 p = Path(dir_path)
 
 MIN_RADIUS_OF_SCENE = 50
 NEW_LANE_DIST = 2.
-CONNECTION_RADIUS = 1.5
+CONNECTION_RADIUS = 2.0
 CONNECTION_DIR = 0.2
 MAX_DISTANCE_ALONG_GRAPH = 100.
 X, Y = 0, 1
+
+
+def normalized(a, axis=-1, order=2):
+    l2 = np.atleast_1d(np.linalg.norm(a, order, axis))
+    l2[l2 == 0] = 1
+    return a / np.expand_dims(l2, axis)
 
 
 def filter_lane_points(lanes, track_center):
@@ -27,16 +34,151 @@ def filter_lane_points(lanes, track_center):
     return lanes_filtered
 
 
-def are_connected(lane_from, lane_to):
-    if np.linalg.norm(lane_from[-1, :] - lane_to[0, :]) < CONNECTION_RADIUS:
-        angle_from = np.arctan2(lane_from[-1, Y] - lane_from[-2, Y], lane_from[-1, X] - lane_from[-2, X])
-        angle_to = np.arctan2(lane_to[1, Y] - lane_to[0, Y], lane_to[1, X] - lane_to[0, X])
-        if np.abs(np.abs(angle_from - angle_to)) < CONNECTION_DIR:
-            return True
-    return False
+def split_stuck_lanes(lanes):
+    unique_ids = np.unique(lanes.ids)
+    new_lane_id = int(np.max(unique_ids) + 1)
+
+    j_start_from = 0
+    for j in range(1, lanes.centerlines.shape[0]):
+        if lanes.ids[j] != lanes.ids[j-1]:
+            j_start_from = j
+        if (
+            lanes.ids[j] == lanes.ids[j-1] and
+            np.linalg.norm(lanes.centerlines[j, :] - lanes.centerlines[j - 1, :]) > CONNECTION_RADIUS
+        ):
+            lanes.ids[j_start_from:j] = new_lane_id
+            new_lane_id += 1
+            j_start_from = j
+
+    return lanes
+
+
+def create_kd_tree(lanes):
+    kdt = KDTree(data=lanes.centerlines)
+    # lane_id_by_coord = {tuple(lanes.centerlines[j, :]) : lanes.ids[j] for j in range(lanes.ids.shape[0])}
+
+    lane_id_by_coord, lane_coords_by_id = {}, {}
+    prev_id = lanes.ids[0]
+    start_j = 0
+    for j in range(1, lanes.ids.shape[0]):
+        coord = tuple(lanes.centerlines[j, :])
+        lane_id = int(lanes.ids[j])
+
+        # form dictionary lane_id_by_coord
+        if coord not in lane_id_by_coord:
+            lane_id_by_coord[coord] = set()
+        lane_id_by_coord[coord].add(lane_id)
+
+        # form dictionary lane_coords_by_id
+        if lanes.ids[j] != prev_id or j == lanes.ids.shape[0]-1:
+            lane_points_coords = lanes.centerlines[start_j: j, :]
+            lane_coords_by_id[int(prev_id)] = lane_points_coords
+
+            start_j = j
+            prev_id = lanes.ids[j]
+
+    return kdt, lane_id_by_coord, lane_coords_by_id
+
+
+def find_closest_lane(past_traj, kdt, lanes):
+    last_coordinate = past_traj[-1, :]
+    close_points_inds = kdt.query_ball_point(tuple(last_coordinate), 10)
+    if len(close_points_inds) < 1:
+        close_points_inds = kdt.query_ball_point(tuple(last_coordinate), 30)
+    close_points_inds = np.array(close_points_inds)
+    close_points_inds = close_points_inds[close_points_inds > 1]
+
+    dist = np.linalg.norm(lanes.centerlines[close_points_inds] - last_coordinate, axis=1)[:, np.newaxis]
+    vector_lane_point = lanes.centerlines[close_points_inds] - lanes.centerlines[close_points_inds - 1]
+
+    vector_traj = past_traj[-1, :] - past_traj[-2, :]
+
+    vector_lane_point = normalized(vector_lane_point)
+    vector_traj = normalized(vector_traj)
+    collinearity = vector_lane_point @ vector_traj.T
+
+    closure_metrics = dist ** 2 - 100 * collinearity ** 2
+
+    closest_index = close_points_inds[np.argmin(closure_metrics)]
+    closest_point = lanes.centerlines[closest_index]
+    closest_lane_id = int(lanes.ids[closest_index])
+
+    return closest_point, closest_lane_id
+
+
+def find_connected_points(start_point, start_lane_id, kdt, lane_id_by_coord, lane_coords_by_id):
+
+    def get_neighbours(point, dist):
+        neighbours = []
+        neighb_lanes = lane_id_by_coord[tuple(point)]
+        if current_lane_id in neighb_lanes:
+            neighb_lanes.remove(current_lane_id)
+        if not bool(neighb_lanes):
+            if lane_coords.shape[0] > 1:
+                point_to_look_at = 2*lane_coords[-1, :] - lane_coords[-2, :]
+            else:
+                point_to_look_at = lane_coords[-1, :]
+
+            point_indices = kdt.query_ball_point(point_to_look_at, 0.5)
+
+            for point_idx in point_indices:
+                point_coord = lanes_filtered.centerlines[point_idx]
+                lane_ids = lane_id_by_coord[tuple(point_coord)]
+                distance = dist + np.linalg.norm(point_coord - point)
+                for lane_id in lane_ids:
+                    if np.linalg.norm(point_coord - lane_coords_by_id[lane_id][0, :]) < 0.0001:
+                        neighbours.append((point_coord, lane_id, distance))
+        else:
+            for lane_id in list(neighb_lanes):
+                lane_start_point_coord = lane_coords_by_id[lane_id][0, :]
+                if np.linalg.norm(lane_start_point_coord - point) < 0.0001:
+                    neighbours.append((point, lane_id, dist))
+
+
+        return neighbours
+
+    connection_type = np.zeros((0, 1))
+    connected_points = np.zeros((0, 2))
+    connected_lanes_ids = set()
+    connected_points = np.vstack((connected_points, start_point))
+    current_lane_id = start_lane_id
+    to_visit = [(start_point, current_lane_id, 0)]      # (point, lane_id, distance)
+    visited = set()
+    while len(to_visit) > 0:
+        current_point, current_lane_id, current_distance = to_visit.pop()
+        lane_coords = lane_coords_by_id[current_lane_id]
+
+        # go through lane to find current point
+        j_start = int(np.where(abs(lane_coords - current_point) < 0.0001)[0][0])
+
+        # add all points from this lane, unless we are out of max_distance
+        j = j_start + 1
+        while j < lane_coords.shape[0] and current_distance < MAX_DISTANCE_ALONG_GRAPH:
+            current_distance += np.linalg.norm(lane_coords[j, :] - lane_coords[j-1, :])
+            j += 1
+        connected_points = np.vstack((connected_points, lane_coords[j_start: j + 1, :]))
+
+        if current_distance > MAX_DISTANCE_ALONG_GRAPH:
+            continue
+
+        neighbours = get_neighbours(lane_coords[-1, :], current_distance)
+
+        for neighbour in neighbours:
+            if tuple(neighbour[0]) not in visited:
+                to_visit.append(neighbour)
+        visited.add(tuple(current_point))
+
+    return connected_points, connection_type
 
 
 def create_lane_graph(lanes):
+    def are_connected(lane_from, lane_to):
+        if np.linalg.norm(lane_from[-1, :] - lane_to[0, :]) < CONNECTION_RADIUS:
+            angle_from = np.arctan2(lane_from[-1, Y] - lane_from[-2, Y], lane_from[-1, X] - lane_from[-2, X])
+            angle_to = np.arctan2(lane_to[1, Y] - lane_to[0, Y], lane_to[1, X] - lane_to[0, X])
+            if np.abs(np.abs(angle_from - angle_to)) < CONNECTION_DIR:
+                return True
+        return False
     lanes_list = []
     prev_point = lanes.centerlines[0, :]
     prev_lane_id = lanes.ids[0]
@@ -85,7 +227,7 @@ def create_lane_graph(lanes):
     return lanes_list, lanes_len, conn_dict
 
 
-def find_closest_lane(lanes_list, past_traj):
+def find_closest_lane_old(lanes_list, past_traj):
     closure_metrics = np.zeros((len(lanes_list),))
     last_point = past_traj[-1, :]
     last_point_direction = past_traj[-1, :] - past_traj[-2, :]
@@ -132,6 +274,8 @@ def find_connected_lanes(lanes_list, lanes_len, conn_dict, closest_lane_idx):
     return connected_lanes
 
 
+
+
 for filepath in p.iterdir():
 
     with open(filepath, 'rb') as opened_file:
@@ -147,6 +291,9 @@ for filepath in p.iterdir():
                 # skip pedestrians
                 continue
 
+            if t_index < 5:
+                continue
+
             valid_indicies = np.where(tracks.valid[t_index, :] > 0)[0]
             future_valid_indicies = np.where(tracks.future_valid[t_index, :] > 0)[0]
             full_track = np.vstack((
@@ -156,22 +303,41 @@ for filepath in p.iterdir():
             print(f"filepath = {filepath}, t_index = {t_index}")
 
             lanes_filtered = filter_lane_points(lanes, full_track)
+            lanes_filtered = split_stuck_lanes(lanes_filtered)
+            kdt, lane_id_by_coord, lane_coords_by_id = create_kd_tree(lanes_filtered)
+
+            closest_point, closest_lane_id = find_closest_lane(past_traj=tracks.features[t_index, valid_indicies, :2],
+                                                               kdt=kdt,
+                                                               lanes=lanes_filtered)
+
+            connected_points, _ = find_connected_points(closest_point, closest_lane_id, kdt, lane_id_by_coord, lane_coords_by_id)
+            plt.plot(connected_points[:, 0], connected_points[:, 1], 'oc')
+
+
+
+
             lanes_list, lanes_len, conn_dict = create_lane_graph(lanes_filtered)
-            closest_lane_idx = find_closest_lane(lanes_list=lanes_list,
+            closest_lane_idx = find_closest_lane_old(lanes_list=lanes_list,
                                                  past_traj=tracks.features[t_index, valid_indicies, :2])
             connected_lanes = find_connected_lanes(lanes_list, lanes_len, conn_dict, closest_lane_idx)
+            # left_neighbours, right_neighbours = find_neighbour_lanes(kdt)
 
             colors = 'bgrcm'
             c_ind = 0
             for lane_idx, lane in enumerate(lanes_list):
                 if lane_idx in connected_lanes:
-                    plt.plot(lane[:, 0], lane[:, 1], 'k')
+                    plt.plot(lane[:, 0], lane[:, 1], '--k')
                 # else:
                 color = colors[c_ind]
                 c_ind = (c_ind + 1) % 5
                 plt.plot(lane[:, 0], lane[:, 1], color,  linewidth=0.5)
                 text_coord = np.mean(lane, axis=0)
-                # plt.text(text_coord[0], text_coord[1], str(lane_idx), fontsize=6, color=color)
+                lane_id = '---'
+                if lane.shape[0] > 1:
+                    lset = lane_id_by_coord[tuple(lane[1, :])]
+                    if bool(lset):
+                        lane_id = list(lset)[0]
+                plt.text(text_coord[0], text_coord[1], lane_id, fontsize=6, color=color)
                 # plt.plot(lane[-1, 0], lane[-1, 1], color+'o', linewidth=0.5)
             plt.plot(full_track[:, 0], full_track[:, 1], 'b:', linewidth=1.5)
             plt.plot(full_track[10, 0], full_track[10, 1], 'go')
