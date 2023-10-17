@@ -97,7 +97,7 @@ def find_closest_lane(past_traj, kdt, lanes):
     vector_traj = normalized(vector_traj)
     collinearity = vector_lane_point @ vector_traj.T
 
-    closure_metrics = dist ** 2 - 100 * collinearity ** 2
+    closure_metrics = dist ** 2 - 30 * collinearity ** 2
 
     closest_index = close_points_inds[np.argmin(closure_metrics)]
     closest_point = lanes.centerlines[closest_index]
@@ -108,32 +108,36 @@ def find_closest_lane(past_traj, kdt, lanes):
 
 def find_connected_points(start_point, start_lane_id, kdt, lane_id_by_coord, lane_coords_by_id):
 
-    def get_neighbours(point, dist):
+    def get_neighbours(lane_id, dist):
         neighbours = []
-        neighb_lanes = lane_id_by_coord[tuple(point)]
-        if current_lane_id in neighb_lanes:
-            neighb_lanes.remove(current_lane_id)
-        if not bool(neighb_lanes):
-            if lane_coords.shape[0] > 1:
-                point_to_look_at = 2*lane_coords[-1, :] - lane_coords[-2, :]
-            else:
-                point_to_look_at = lane_coords[-1, :]
 
-            point_indices = kdt.query_ball_point(point_to_look_at, 0.5)
+        lane_coords = lane_coords_by_id[lane_id]
+        if lane_coords.shape[0] < 2:
+            return neighbours
 
-            for point_idx in point_indices:
-                point_coord = lanes_filtered.centerlines[point_idx]
-                lane_ids = lane_id_by_coord[tuple(point_coord)]
-                distance = dist + np.linalg.norm(point_coord - point)
-                for lane_id in lane_ids:
-                    if np.linalg.norm(point_coord - lane_coords_by_id[lane_id][0, :]) < 0.0001:
-                        neighbours.append((point_coord, lane_id, distance))
-        else:
-            for lane_id in list(neighb_lanes):
-                lane_start_point_coord = lane_coords_by_id[lane_id][0, :]
-                if np.linalg.norm(lane_start_point_coord - point) < 0.0001:
-                    neighbours.append((point, lane_id, dist))
+        # last point
+        angle_from = np.arctan2(lane_coords[-1, Y] - lane_coords[-2, Y], lane_coords[-1, X] - lane_coords[-2, X])
 
+        # close to current point
+        point_to_indices = kdt.query_ball_point(lane_coords[-1, :], CONNECTION_RADIUS)
+        for point_to_idx in point_to_indices:
+
+            if lanes_filtered.ids[point_to_idx] != lanes_filtered.ids[point_to_idx + 1]:
+                continue
+
+            point_to_lane = int(lanes_filtered.ids[point_to_idx])
+            point_to_coord = lanes_filtered.centerlines[point_to_idx]
+            after_point_to_coord = lanes_filtered.centerlines[point_to_idx + 1]
+
+            angle_to = np.arctan2(
+                after_point_to_coord[Y] - point_to_coord[Y],
+                after_point_to_coord[X] - point_to_coord[X]
+            )
+            if np.abs(angle_from - angle_to) < CONNECTION_DIR:
+                neighb_lane_ids = lane_id_by_coord[tuple(point_to_coord)]
+
+                distance = dist + np.linalg.norm(point_to_coord - lane_coords[-1, :])
+                neighbours.append((point_to_coord, point_to_lane, distance))
 
         return neighbours
 
@@ -161,7 +165,10 @@ def find_connected_points(start_point, start_lane_id, kdt, lane_id_by_coord, lan
         if current_distance > MAX_DISTANCE_ALONG_GRAPH:
             continue
 
-        neighbours = get_neighbours(lane_coords[-1, :], current_distance)
+        if lane_coords.shape[0] > 1:
+            neighbours = get_neighbours(current_lane_id, current_distance)
+        else:
+            neighbours = []
 
         for neighbour in neighbours:
             if tuple(neighbour[0]) not in visited:
@@ -291,9 +298,8 @@ for filepath in p.iterdir():
                 # skip pedestrians
                 continue
 
-            if t_index < 5:
+            if t_index < 1:
                 continue
-
             valid_indicies = np.where(tracks.valid[t_index, :] > 0)[0]
             future_valid_indicies = np.where(tracks.future_valid[t_index, :] > 0)[0]
             full_track = np.vstack((
@@ -322,7 +328,7 @@ for filepath in p.iterdir():
             connected_lanes = find_connected_lanes(lanes_list, lanes_len, conn_dict, closest_lane_idx)
             # left_neighbours, right_neighbours = find_neighbour_lanes(kdt)
 
-            colors = 'bgrcm'
+            colors = 'cbgmr'
             c_ind = 0
             for lane_idx, lane in enumerate(lanes_list):
                 if lane_idx in connected_lanes:
