@@ -15,6 +15,10 @@ CONNECTION_DIR = 0.2
 MAX_DISTANCE_ALONG_GRAPH = 100.
 X, Y = 0, 1
 
+ANGLE_ESTIMATION_MATRIX = np.array([[1.0,  0.0,  0.0],
+                                    [1.5, -2.0,  0.5],
+                                    [0.5, -1.0,  0.5]])
+
 
 def normalized(a, axis=-1, order=2):
     l2 = np.atleast_1d(np.linalg.norm(a, order, axis))
@@ -122,7 +126,13 @@ def find_connected_points(start_point, start_lane_id, kdt, lane_id_by_coord, lan
         point_to_indices = kdt.query_ball_point(lane_coords[-1, :], CONNECTION_RADIUS)
         for point_to_idx in point_to_indices:
 
-            if lanes_filtered.ids[point_to_idx] != lanes_filtered.ids[point_to_idx + 1]:
+            if point_to_idx > 0 and lanes_filtered.ids[point_to_idx] == lanes_filtered.ids[point_to_idx - 1]:
+                # only from the start of lane
+                continue
+
+            if (point_to_idx < lanes_filtered.ids.shape[0]-1 and
+                lanes_filtered.ids[point_to_idx] != lanes_filtered.ids[point_to_idx + 1]):
+                # only lanes with more than one point
                 continue
 
             point_to_lane = int(lanes_filtered.ids[point_to_idx])
