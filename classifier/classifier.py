@@ -2,108 +2,23 @@ from pathlib import Path
 import pickle
 import numpy as np
 import matplotlib.pyplot as plt
-from data_model.scene import Lanes
 from scipy.spatial import KDTree
+from constants import X, Y
+from constants import CONNECTION_RADIUS
+from constants import CONNECTION_DIR
+from constants import MAX_DISTANCE_ALONG_GRAPH
+from constants import NEW_LANE_DIST
+from constants import ANGLE_ESTIMATION_MATRIX
+from constants import NEXT_POINT_STRING
+from preprocessing.functions import normalized
+from preprocessing.functions import filter_lane_points
+from preprocessing.functions import remove_duplicate_points_in_lane
+from preprocessing.functions import split_stuck_lanes
+from preprocessing.functions import split_lanes_with_tee_in_the_middle
 
 dir_path = '/Users/antontmur/projects/mfplot/data/waymo_converted/training/part00000'
 p = Path(dir_path)
 
-MIN_RADIUS_OF_SCENE = 50
-NEW_LANE_DIST = 2.
-CONNECTION_RADIUS = 1.0
-CONNECTION_DIR = 0.2
-MAX_DISTANCE_ALONG_GRAPH = 100.
-X, Y = 0, 1
-
-# estimation of parabola z = a + b*t + c*t^2, where z = x, y.
-# For t = -2, -1, 0 we have equation X * coeff = measured_values. So coeff = inv(X) * measured_values
-# Here is inv(X) matrix:
-ANGLE_ESTIMATION_MATRIX = np.array([[0.0,  0.0,  1.0],
-                                    [0.5, -2.0,  1.5],
-                                    [0.5, -1.0,  0.5]])
-NEXT_POINT_STRING = np.ones((1, 3))
-
-
-def normalized(a, axis=-1, order=2):
-    l2 = np.atleast_1d(np.linalg.norm(a, order, axis))
-    l2[l2 == 0] = 1
-    return a / np.expand_dims(l2, axis)
-
-
-def filter_lane_points(lanes, track_center):
-    track_center = np.mean(full_track, axis=0)
-    min_x, max_x = np.min(full_track[:, 0]), np.max(full_track[:, 0])
-    min_y, max_y = np.min(full_track[:, 1]), np.max(full_track[:, 1])
-    scene_radius = max(max_x - min_x, max_y - min_y, MIN_RADIUS_OF_SCENE)
-    lanes_filtered = Lanes()
-    idxs_filtered = np.any(np.square(lanes.centerlines[:, None] - track_center).sum(axis=2) <= scene_radius ** 2, axis=1)
-    lanes_filtered.centerlines = lanes.centerlines[idxs_filtered]
-    lanes_filtered.ids = lanes.ids[idxs_filtered]
-    return lanes_filtered
-
-
-def split_stuck_lanes(lanes):
-    unique_ids = np.unique(lanes.ids)
-    new_lane_id = int(np.max(unique_ids) + 1)
-
-    j_start_from = 0
-    for j in range(1, lanes.centerlines.shape[0]-1):
-        if lanes.ids[j] != lanes.ids[j-1]:
-            j_start_from = j
-
-        if lanes.ids[j] != lanes.ids[j+1]:
-            continue
-
-        if (
-            lanes.ids[j] == lanes.ids[j-1] and
-            np.linalg.norm(lanes.centerlines[j, :] - lanes.centerlines[j - 1, :]) > 2*CONNECTION_RADIUS
-        ):
-            lanes.ids[j_start_from:j] = new_lane_id
-            new_lane_id += 1
-            j_start_from = j
-
-    return lanes
-
-
-def split_lanes_with_tee_in_the_middle(lanes):
-    TEE_CLOSE_DIST = 0.05
-    kdt = KDTree(data=lanes.centerlines)
-    unique_ids = np.unique(lanes.ids)
-    new_lane_id = int(np.max(unique_ids) + 1)
-
-    j_start_from = 0
-    for j in range(1, lanes.centerlines.shape[0]-1):
-        if lanes.ids[j] != lanes.ids[j-1]:
-            j_start_from = j
-
-        if lanes.ids[j] != lanes.ids[j+1]:
-            continue
-
-        close_point_indices = kdt.query_ball_point(lanes.centerlines[j, :], TEE_CLOSE_DIST)
-        close_point_indices.remove(j)
-
-        if len(close_point_indices) > 0:
-            # we have someone very close to the middle of the lane point
-            for close_point_idx in close_point_indices:
-                if lanes.ids[close_point_idx] != lanes.ids[close_point_idx-1]:
-                    lanes.ids[j_start_from: j] = new_lane_id
-                    new_lane_id += 1
-                    j_start_from = j
-
-    return lanes
-
-def remove_duplicate_points_in_lane(lanes):
-
-    mask = np.ones((lanes.ids.shape[0],), dtype=bool)
-    for j in range(1, lanes.centerlines.shape[0]):
-        if lanes.ids[j] == lanes.ids[j-1]:
-            if np.linalg.norm(lanes.centerlines[j, :] - lanes.centerlines[j-1, :]) < 0.001:
-                mask[j] = False
-
-    lanes.ids = lanes.ids[mask]
-    lanes.centerlines = lanes.centerlines[mask, :]
-
-    return lanes
 
 def create_kd_tree(lanes):
     kdt = KDTree(data=lanes.centerlines)
