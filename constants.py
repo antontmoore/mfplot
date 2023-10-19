@@ -3,9 +3,6 @@ import numpy as np
 # radius of the scene, used for filtering points by the distance from track center
 MIN_RADIUS_OF_SCENE = 50
 
-# will be deleted
-NEW_LANE_DIST = 2.
-
 # max distance between two lanes' points to decide if they are connected, while traversing lanes
 CONNECTION_RADIUS = 1.0
 
