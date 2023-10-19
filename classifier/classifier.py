@@ -10,14 +10,18 @@ p = Path(dir_path)
 
 MIN_RADIUS_OF_SCENE = 50
 NEW_LANE_DIST = 2.
-CONNECTION_RADIUS = 2.0
+CONNECTION_RADIUS = 1.0
 CONNECTION_DIR = 0.2
 MAX_DISTANCE_ALONG_GRAPH = 100.
 X, Y = 0, 1
 
-ANGLE_ESTIMATION_MATRIX = np.array([[1.0,  0.0,  0.0],
-                                    [1.5, -2.0,  0.5],
+# estimation of parabola z = a + b*t + c*t^2, where z = x, y.
+# For t = -2, -1, 0 we have equation X * coeff = measured_values. So coeff = inv(X) * measured_values
+# Here is inv(X) matrix:
+ANGLE_ESTIMATION_MATRIX = np.array([[0.0,  0.0,  1.0],
+                                    [0.5, -2.0,  1.5],
                                     [0.5, -1.0,  0.5]])
+NEXT_POINT_STRING = np.ones((1, 3))
 
 
 def normalized(a, axis=-1, order=2):
@@ -43,12 +47,16 @@ def split_stuck_lanes(lanes):
     new_lane_id = int(np.max(unique_ids) + 1)
 
     j_start_from = 0
-    for j in range(1, lanes.centerlines.shape[0]):
+    for j in range(1, lanes.centerlines.shape[0]-1):
         if lanes.ids[j] != lanes.ids[j-1]:
             j_start_from = j
+
+        if lanes.ids[j] != lanes.ids[j+1]:
+            continue
+
         if (
             lanes.ids[j] == lanes.ids[j-1] and
-            np.linalg.norm(lanes.centerlines[j, :] - lanes.centerlines[j - 1, :]) > CONNECTION_RADIUS
+            np.linalg.norm(lanes.centerlines[j, :] - lanes.centerlines[j - 1, :]) > 2*CONNECTION_RADIUS
         ):
             lanes.ids[j_start_from:j] = new_lane_id
             new_lane_id += 1
@@ -56,6 +64,46 @@ def split_stuck_lanes(lanes):
 
     return lanes
 
+
+def split_lanes_with_tee_in_the_middle(lanes):
+    TEE_CLOSE_DIST = 0.05
+    kdt = KDTree(data=lanes.centerlines)
+    unique_ids = np.unique(lanes.ids)
+    new_lane_id = int(np.max(unique_ids) + 1)
+
+    j_start_from = 0
+    for j in range(1, lanes.centerlines.shape[0]-1):
+        if lanes.ids[j] != lanes.ids[j-1]:
+            j_start_from = j
+
+        if lanes.ids[j] != lanes.ids[j+1]:
+            continue
+
+        close_point_indices = kdt.query_ball_point(lanes.centerlines[j, :], TEE_CLOSE_DIST)
+        close_point_indices.remove(j)
+
+        if len(close_point_indices) > 0:
+            # we have someone very close to the middle of the lane point
+            for close_point_idx in close_point_indices:
+                if lanes.ids[close_point_idx] != lanes.ids[close_point_idx-1]:
+                    lanes.ids[j_start_from: j] = new_lane_id
+                    new_lane_id += 1
+                    j_start_from = j
+
+    return lanes
+
+def remove_duplicate_points_in_lane(lanes):
+
+    mask = np.ones((lanes.ids.shape[0],), dtype=bool)
+    for j in range(1, lanes.centerlines.shape[0]):
+        if lanes.ids[j] == lanes.ids[j-1]:
+            if np.linalg.norm(lanes.centerlines[j, :] - lanes.centerlines[j-1, :]) < 0.001:
+                mask[j] = False
+
+    lanes.ids = lanes.ids[mask]
+    lanes.centerlines = lanes.centerlines[mask, :]
+
+    return lanes
 
 def create_kd_tree(lanes):
     kdt = KDTree(data=lanes.centerlines)
@@ -124,7 +172,26 @@ def find_connected_points(start_point, start_lane_id, kdt, lane_id_by_coord, lan
 
         # close to current point
         point_to_indices = kdt.query_ball_point(lane_coords[-1, :], CONNECTION_RADIUS)
-        for point_to_idx in point_to_indices:
+        points_to = [(point_to_idx, angle_from) for point_to_idx in point_to_indices]
+
+        # close to point that had to be the next after lane
+        if lane_coords.shape[0] >= 3:
+            # estimation of parabola z = a + b*t + c*t^2, where z = x, y.
+            parabola_coeff = ANGLE_ESTIMATION_MATRIX @ lane_coords[-3:, :]
+
+            # estimation of the next point coordinate
+            next_point = (NEXT_POINT_STRING @ parabola_coeff)[0]
+
+            # and angle
+            angle_from = np.arctan2(next_point[Y] - lane_coords[-1, Y], next_point[X] - lane_coords[-1, X])
+
+            # take points from that region
+            point_to_indices = kdt.query_ball_point(next_point, CONNECTION_RADIUS)
+            points_to.extend(
+                [(point_to_idx, angle_from) for point_to_idx in point_to_indices]
+            )
+
+        for point_to_idx, angle_from in points_to:
 
             if point_to_idx > 0 and lanes_filtered.ids[point_to_idx] == lanes_filtered.ids[point_to_idx - 1]:
                 # only from the start of lane
@@ -291,8 +358,6 @@ def find_connected_lanes(lanes_list, lanes_len, conn_dict, closest_lane_idx):
     return connected_lanes
 
 
-
-
 for filepath in p.iterdir():
 
     with open(filepath, 'rb') as opened_file:
@@ -308,8 +373,6 @@ for filepath in p.iterdir():
                 # skip pedestrians
                 continue
 
-            if t_index < 1:
-                continue
             valid_indicies = np.where(tracks.valid[t_index, :] > 0)[0]
             future_valid_indicies = np.where(tracks.future_valid[t_index, :] > 0)[0]
             full_track = np.vstack((
@@ -319,8 +382,13 @@ for filepath in p.iterdir():
             print(f"filepath = {filepath}, t_index = {t_index}")
 
             lanes_filtered = filter_lane_points(lanes, full_track)
+            lanes_filtered = remove_duplicate_points_in_lane(lanes_filtered)
             lanes_filtered = split_stuck_lanes(lanes_filtered)
+            lanes_filtered = split_lanes_with_tee_in_the_middle(lanes_filtered)
+
             kdt, lane_id_by_coord, lane_coords_by_id = create_kd_tree(lanes_filtered)
+
+
 
             closest_point, closest_lane_id = find_closest_lane(past_traj=tracks.features[t_index, valid_indicies, :2],
                                                                kdt=kdt,
@@ -334,7 +402,7 @@ for filepath in p.iterdir():
 
             lanes_list, lanes_len, conn_dict = create_lane_graph(lanes_filtered)
             closest_lane_idx = find_closest_lane_old(lanes_list=lanes_list,
-                                                 past_traj=tracks.features[t_index, valid_indicies, :2])
+                                                     past_traj=tracks.features[t_index, valid_indicies, :2])
             connected_lanes = find_connected_lanes(lanes_list, lanes_len, conn_dict, closest_lane_idx)
             # left_neighbours, right_neighbours = find_neighbour_lanes(kdt)
 
@@ -346,7 +414,7 @@ for filepath in p.iterdir():
                 # else:
                 color = colors[c_ind]
                 c_ind = (c_ind + 1) % 5
-                plt.plot(lane[:, 0], lane[:, 1], color,  linewidth=0.5)
+                plt.plot(lane[:, 0], lane[:, 1], color+'-',  linewidth=0.5)
                 text_coord = np.mean(lane, axis=0)
                 lane_id = '---'
                 if lane.shape[0] > 1:
