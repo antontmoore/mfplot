@@ -117,7 +117,7 @@ class TrajClassifier:
 
             # form dictionary lane_coords_by_id
             if lanes.ids[j] != prev_id or j == lanes.ids.shape[0] - 1:
-                lane_points_coords = lanes.centerlines[start_j: j, :]
+                lane_points_coords = lanes.centerlines[start_j: j+1, :]
                 lane_coords_by_id[int(prev_id)] = lane_points_coords
 
                 start_j = j
