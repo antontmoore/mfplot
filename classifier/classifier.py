@@ -167,7 +167,17 @@ class TrajClassifier:
         close_points_inds = close_points_inds[close_points_inds > 1]
 
         dist = np.linalg.norm(lanes.centerlines[close_points_inds] - last_coordinate, axis=1)[:, np.newaxis]
-        vector_lane_point = lanes.centerlines[close_points_inds] - lanes.centerlines[close_points_inds - 1]
+
+        # define, how to take difference: backward or forward
+        backw = np.where(lanes.ids[close_points_inds] == lanes.ids[close_points_inds - 1])[0]
+        forw = np.where(lanes.ids[close_points_inds] != lanes.ids[close_points_inds - 1])[0]
+
+        # calc difference vector for every close point
+        vector_lane_point = np.zeros((close_points_inds.shape[0], 2))
+        vector_lane_point[backw, :] = lanes.centerlines[close_points_inds[backw]] - \
+                                      lanes.centerlines[close_points_inds[backw] - 1]
+        vector_lane_point[forw, :] = lanes.centerlines[close_points_inds[forw] + 1] - \
+                                     lanes.centerlines[close_points_inds[forw]]
 
         vector_traj = past_traj[-1, :] - past_traj[-2, :]
 
