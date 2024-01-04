@@ -248,7 +248,8 @@ class TrajClassifier:
                     after_point_to_coord[Y] - point_to_coord[Y],
                     after_point_to_coord[X] - point_to_coord[X]
                 )
-                if np.abs(angle_from - angle_to) < CONNECTION_DIR:
+                angle_difference = min((2 * pi) - np.abs(angle_from - angle_to), np.abs(angle_from - angle_to))
+                if angle_difference < CONNECTION_DIR:
                     distance = dist + np.linalg.norm(point_to_coord - lane_coords[-1, :])
                     neighbours.append((point_to_coord, point_to_lane, distance))
 
