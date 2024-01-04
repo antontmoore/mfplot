@@ -156,7 +156,11 @@ class TrajClassifier:
     @staticmethod
     def find_closest_lane(past_traj, kdt, lanes):
         last_coordinate = past_traj[-1, :]
-        close_points_inds = kdt.query_ball_point(tuple(last_coordinate), 10)
+        ball_size = 20
+        close_points_inds = []
+        while len(close_points_inds) == 0:
+            close_points_inds = kdt.query_ball_point(tuple(last_coordinate), ball_size)
+            ball_size *= 1.1
         if len(close_points_inds) < 1:
             close_points_inds = kdt.query_ball_point(tuple(last_coordinate), 30)
         close_points_inds = np.array(close_points_inds)
