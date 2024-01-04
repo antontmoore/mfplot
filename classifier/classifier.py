@@ -232,8 +232,11 @@ class TrajClassifier:
                     # only from the start of lane
                     continue
 
-                if (point_to_idx < lanes_filtered.ids.shape[0] - 1 and
-                        lanes_filtered.ids[point_to_idx] != lanes_filtered.ids[point_to_idx + 1]):
+                if point_to_idx == lanes_filtered.ids.shape[0] - 1:
+                    # skip last alone point
+                    continue
+
+                if (lanes_filtered.ids[point_to_idx] != lanes_filtered.ids[point_to_idx + 1]):
                     # only lanes with more than one point
                     continue
 
