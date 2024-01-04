@@ -12,8 +12,11 @@ from constants import NEXT_POINT_STRING
 from preprocessing.functions import normalized
 from preprocessing.functions import filter_lane_points
 from preprocessing.functions import remove_duplicate_points_in_lane
+from preprocessing.functions import change_duplicate_ids_in_lanes
 from preprocessing.functions import split_stuck_lanes
 from preprocessing.functions import split_lanes_with_tee_in_the_middle
+from preprocessing.functions import relu
+from math import pi
 
 
 class TrajClassifier:
@@ -37,6 +40,9 @@ class TrajClassifier:
             # skip pedestrians
             return 'pedestrian', None
 
+        # if str(self.filepath).split("/")[-1][:5] != '8622b' or track_idx != 3:
+        #     return '', None
+
         valid_indicies = np.where(self.scene.tracks.valid[track_idx, :] > 0)[0]
         future_valid_indicies = np.where(self.scene.tracks.future_valid[track_idx, :] > 0)[0]
         full_track = np.vstack((
@@ -48,6 +54,7 @@ class TrajClassifier:
         # filter and preprpocess lanes data
         lanes_filtered = filter_lane_points(self.scene.lanes, full_track)
         lanes_filtered = remove_duplicate_points_in_lane(lanes_filtered)
+        lanes_filtered = change_duplicate_ids_in_lanes(lanes_filtered)
         lanes_filtered = split_stuck_lanes(lanes_filtered)
         lanes_filtered = split_lanes_with_tee_in_the_middle(lanes_filtered)
 
@@ -59,11 +66,12 @@ class TrajClassifier:
             lanes=lanes_filtered
         )
 
-        connected_points, _ = self.find_connected_points(
+        connected_points, connected_lanes = self.find_connected_points(
             closest_point,
             closest_lane_id,
             kdt,
             lane_coords_by_id,
+            lane_id_by_coord,
             lanes_filtered)
 
         plot_ax = None
@@ -146,7 +154,11 @@ class TrajClassifier:
         vector_traj = normalized(vector_traj)
         collinearity = vector_lane_point @ vector_traj.T
 
-        closure_metrics = dist ** 2 - 30 * collinearity ** 2
+        if np.linalg.norm(past_traj[0, :] - past_traj[-1, :]) < MIN_PAST_TRAJ_DIFFERENCE:
+            # staying at the same point
+            collinearity = np.zeros_like(collinearity)
+
+        closure_metrics = dist ** 2 + 1e6 * relu(-collinearity) ** 2
 
         closest_index = close_points_inds[np.argmin(closure_metrics)]
         closest_point = lanes.centerlines[closest_index]
@@ -159,6 +171,7 @@ class TrajClassifier:
                               start_lane_id,
                               kdt,
                               lane_coords_by_id,
+                              lane_id_by_coord,
                               lanes_filtered):
 
         def get_neighbours(lane_id, dist):
@@ -217,7 +230,6 @@ class TrajClassifier:
 
             return neighbours
 
-        connection_type = np.zeros((0, 1))
         connected_points = np.zeros((0, 2))
         connected_points = np.vstack((connected_points, start_point))
         current_lane_id = start_lane_id
