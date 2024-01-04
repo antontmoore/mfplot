@@ -6,6 +6,7 @@ from scipy.spatial import KDTree
 from constants import X, Y
 from constants import CONNECTION_RADIUS
 from constants import CONNECTION_DIR
+from constants import MIN_PAST_TRAJ_DIFFERENCE
 from constants import MAX_DISTANCE_ALONG_GRAPH
 from constants import ANGLE_ESTIMATION_MATRIX
 from constants import NEXT_POINT_STRING
@@ -74,12 +75,27 @@ class TrajClassifier:
             lane_id_by_coord,
             lanes_filtered)
 
+
+        valid_indicies = np.where(self.scene.tracks.future_valid[track_idx, :] > 0)[0]
+        future_traj = self.scene.tracks.future_features[track_idx, valid_indicies, :2]
+        future_closest_point, future_closest_lane_id = self.find_closest_lane(
+            past_traj=self.scene.tracks.future_features[track_idx, valid_indicies, :2],
+            kdt=kdt,
+            lanes=lanes_filtered
+        )
+
+        if int(future_closest_lane_id) in connected_lanes:
+            label = 'lane keeping'
+        else:
+            label = 'something else'
+
         plot_ax = None
         if do_plot:
-            plot_ax = self.make_plot(lane_coords_by_id, lane_id_by_coord, connected_points, full_track, track_idx)
-        return '', plot_ax
+            plot_ax = self.make_plot(lane_coords_by_id, lane_id_by_coord,
+                                     connected_points, full_track, track_idx, label)
+        return label, plot_ax
 
-    def make_plot(self, lane_coords_by_id, lane_id_by_coord, connected_points, full_track, track_idx):
+    def make_plot(self, lane_coords_by_id, lane_id_by_coord, connected_points, full_track, track_idx, label):
 
         f, ax = plt.subplots()
         plt.plot(connected_points[:, 0], connected_points[:, 1], 'oc')
@@ -103,7 +119,8 @@ class TrajClassifier:
         plt.plot(full_track[10, 0], full_track[10, 1], 'go')
         plt.plot(full_track[-1, 0], full_track[-1, 1], 'ro')
 
-        plt.title(str(self.filepath).split('/')[-1] + ' _ t_index = ' + str(track_idx))
+        label_for_plot = '+++++' if label == 'lane keeping' else ''
+        plt.title(str(self.filepath).split('/')[-1] + ' _ t_index = ' + str(track_idx) + label_for_plot)
 
         return ax
 
@@ -262,7 +279,11 @@ class TrajClassifier:
                     to_visit.append(neighbour)
             visited.add(tuple(current_point))
 
-        return connected_points, connection_type
+        connected_lanes = set()
+        for conn_point in connected_points:
+            connected_lanes.add(list(lane_id_by_coord[tuple(conn_point)])[0])
+        return connected_points, connected_lanes
+
 
 
 if __name__ == "__main__":
@@ -270,10 +291,18 @@ if __name__ == "__main__":
     p = Path(dir_path)
 
     traj_classifier = TrajClassifier()
+    lane_keeper_count, other_count = 0, 0
     for file_path in p.iterdir():
         traj_classifier.load_scene(file_path)
 
         for track_index in range(traj_classifier.number_of_tracks):
             label, track_plot = traj_classifier.classify_track(track_index, True)
+            if label == 'lane keeping':
+                lane_keeper_count += 1
+            elif label == 'something else':
+                other_count += 1
+
             if track_plot:
                 plt.show()
+
+    print(f"lane_keeper_count = {lane_keeper_count}, other = {other_count}")
