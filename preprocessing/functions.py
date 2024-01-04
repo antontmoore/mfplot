@@ -95,6 +95,43 @@ def split_lanes_with_tee_in_the_middle(lanes):
     return lanes
 
 
+def change_duplicate_ids_in_lanes(lanes):
+    """
+        Function finds different lanes with the same id and change id for one of them.
+        Different lanes are detected as lanes with the same id, but points are not followed by each other.
+
+        :param lanes: see data_model.scene.Lanes
+        :return: renewed lanes structure
+    """
+    unique_ids = np.unique(lanes.ids)
+    new_id = int(np.max(unique_ids) + 1)
+    have_already_met = set()
+    prev_id = -1
+    changes = []  # tuples (index_from, index_to, new_id)
+    j = 1
+    while j < lanes.ids.shape[0]:
+        this_id = int(lanes.ids[j])
+        if this_id != prev_id:
+            if this_id not in have_already_met:
+                have_already_met.add(this_id)
+                while j < lanes.ids.shape[0] and lanes.ids[j] == this_id:
+                    j += 1
+
+            else:
+                change_tuple = (j,)
+                while j < lanes.ids.shape[0] and lanes.ids[j] == this_id:
+                    j += 1
+                change_tuple += (j, new_id)
+                new_id += 1
+                changes.append(change_tuple)
+            prev_id = this_id
+
+    for change in changes:
+        lanes.ids[change[0]: change[1]] = change[2]
+
+    return lanes
+
+
 def remove_duplicate_points_in_lane(lanes):
     """
         Function removes duplicates from the lane, only if we have two same points going one-by-one.
