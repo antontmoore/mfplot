@@ -10,10 +10,13 @@ CONNECTION_RADIUS = 1.0
 CONNECTION_DIR = 0.2
 
 # max distance from first found projection we wanna go for while traversing lanes
-MAX_DISTANCE_ALONG_GRAPH = 100.
+MAX_DISTANCE_ALONG_GRAPH = 150.
 
 # closure distance between our lane point and start point from another lane for making a decision, they are connected
-TEE_CLOSE_DIST = 0.05
+TEE_CLOSE_DIST = 0.5
+
+# min distance to decide that car moved in the past
+MIN_PAST_TRAJ_DIFFERENCE = 1.0
 
 # indices
 X, Y = 0, 1
